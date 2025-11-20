@@ -1,6 +1,6 @@
 function AnalysisScript_CAPs_Wrapper(expdate,file_prefix_outputs,CAP_avg_type,scaled_noise,flag_attenuation,...
                                                 subtractnoise,zerobaseline,digitalLPF,digitalLPF_fc_bandpass,digitaloffsetremoval,ch_num_Vinput,...
-                                                ch_num_neural_values,monopolarrec,experiment_metadata_table_row_i)
+                                                ch_num_neural_values,monopolarrec,experiment_metadata_table_row_i,raw_data_directory)
 
 scrnsz = get(0,'screensize');
 
@@ -27,7 +27,7 @@ CV_bounds_slowest   = 0.1;
 
 trialnum_start_values   = experiment_metadata_table_row_i.trialnum_start_values;
 
-file_prefix_metadata        = experiment_metadata_table_row_i.file_prefix_metadata{1};
+file_prefix_metadata        = [raw_data_directory,'/',experiment_metadata_table_row_i.file_prefix_metadata{1}];
 file_prefix_adicht          = [file_prefix_metadata, '/', experiment_metadata_table_row_i.file_prefix_adicht{1}];
 
 y_min = -1300;

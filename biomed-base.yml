@@ -12,7 +12,6 @@ dependencies:
   - scikit-learn
   - jupyterlab
   - ipython
-  - pyyaml # only if using YAML config files 
   - scikit-image # only if doing image analysis
   - tifffile # only if doing image analysis
   - napari # only if doing image analysis

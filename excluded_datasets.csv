@@ -1,0 +1,5 @@
+trial_unique_ID, reason_for_exclusion
+20230131_7, exclude trialnum 89 and 99 of 20230131 because the in-experiment note says this block maybe was not saturated so we re-tested these settings in a separate set of trials
+20230131_8, same reason as 20230131_7 since this is opposite polarity
+20230131_13, exclude trialnum 165 and 175 of 20230131 because the in-experiment note says this block maybe was not saturated so we re-tested these settings in a separate set of trials
+20230131_14, same reason as 20230131_13 since this is opposite polarity

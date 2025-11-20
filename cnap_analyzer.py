@@ -8,6 +8,7 @@ from scipy import integrate
 from pathlib import Path
 import glob
 from typing import Dict, List, Tuple, Optional
+import yaml
 
 class CNAPAnalyzer:
     """
@@ -153,7 +154,7 @@ class CNAPDataProcessor:
     files, to process CNAP data, and visualize results.
     Uses CNAPAnalyzer to get features.
     """
-    def __init__(self, metadata_file: str):
+    def __init__(self, metadata_file: str, local_output_path: str):
         """
         Initialize with path to metadata Excel file.
         
@@ -164,6 +165,7 @@ class CNAPDataProcessor:
         self.data_df = None
         # Initialize the CNAP analyzer with default parameters
         self.analyzer = CNAPAnalyzer()
+        self.output_path = local_output_path
         
     def load_mat_file(self, mat_file: str, flag_plot: bool = False) -> Dict:
         """
@@ -222,15 +224,20 @@ class CNAPDataProcessor:
             'auc': auc
         }
 
-    def process_data(self, flag_plot: bool = False) -> None:
+    def process_data(self, preprocessed_CAP_path: str, flag_plot: bool = False) -> None:
         """Load all CAPs and store CAPs and features in a DataFrame."""
         metadata_df = pd.read_excel(self.metadata_file)
         data_list = []
         
         for idx, row in metadata_df.iterrows():
             file_prefix = row['file_prefix_outputs_values']
-            mat_files = glob.glob(str(Path(file_prefix) / '*.mat'))
+            mat_files = glob.glob(str(Path(preprocessed_CAP_path) / file_prefix / '*.mat'))
             
+            # print warning if no .mat files found for this row
+            if len(mat_files) == 0:
+                print(f'Warning: No .mat files found for file prefix {file_prefix}')
+                continue
+
             for mat_file in mat_files:
                 data_dict = self.load_mat_file(mat_file,flag_plot)
                 data_dict.update({
@@ -482,7 +489,7 @@ class CNAPDataProcessor:
         # plt.tight_layout()
         
         if save_fig:
-            plt.savefig(f'{metric}_{nerve}_grid.png', bbox_inches='tight', dpi=300)
+            plt.savefig(f'{self.output_path}/{metric}_{nerve}_grid.png', bbox_inches='tight', dpi=300)
         
         # Position the window on the primary monitor
         try:
@@ -556,17 +563,40 @@ class CNAPDataProcessor:
         plt.tight_layout()
         
         if save_fig:
-            plt.savefig(f'{metric}_{nerve}_combined_dates_seaborn.png', 
+            plt.savefig(f'{self.output_path}/{metric}_{nerve}_combined_dates_seaborn.png', 
                     bbox_inches='tight', dpi=300)
         
         plt.show()
+
+# --- Load configuration ---
+CONFIG_FILE = "local_config.yml"
+
+try:
+    with open(CONFIG_FILE, 'r') as f:
+        # Use yaml.safe_load() for security
+        local_config = yaml.safe_load(f) 
+except FileNotFoundError:
+    raise FileNotFoundError(f"Config file '{CONFIG_FILE}' not found. "
+                          f"Did you copy 'config.yml.example' to 'config.yml'?")
+
+RAW_DATA_PATH = local_config.get("raw_data_path")
+PREPROCCESSED_CAP_PATH = local_config.get("preprocessed_CAP_path")
+LOCAL_OUTPUT_PATH = local_config.get("local_output_path")
+
+# Assert that the paths exist
+assert Path(RAW_DATA_PATH).exists(), f"Data path '{RAW_DATA_PATH}' does not exist. Please check your local_config.yml file."
+assert Path(PREPROCCESSED_CAP_PATH).exists(), f"Preprocessed CAP path '{PREPROCCESSED_CAP_PATH}' does not exist. Please check your local_config.yml file."
+assert Path(LOCAL_OUTPUT_PATH).exists(), f"Local output path '{LOCAL_OUTPUT_PATH}' does not exist. Please check your local_config.yml file."
+
+# --- End of config ---
 
 # Load the preprocessed .mat files into one big DataFrame, but add some extra
 # features from the CAPs (e.g., auc, peak; see
 # CNAPDataProcessor.load_mat_file()). There is one folder of .mat files per row
 # in the Excel metadata file. The resulting DataFrame is in processor.data_df
-processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
-processor.process_data(flag_plot=False)
+# processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
+processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
+processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False)
 
 # Plot summary plots: plot_metric_grid plots all the features below from each
 # nerve as a separate subplot; plot_combined_dates combines all the features

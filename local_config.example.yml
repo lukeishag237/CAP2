@@ -1,0 +1,16 @@
+# local_config.example.yml
+# ---------------------------------------------------------
+# INSTRUCTIONS:
+# 1. Copy this file and rename it to 'local_config.yml'
+# 2. This file is ignored by Git. It is for your LOCAL settings only.
+# ---------------------------------------------------------
+
+# (REQUIRED) The absolute path to the folder containing the un-preprocessed CAP
+# data and the metadata spreadsheet. Change this as needed.
+raw_data_path: "Z:/Pena Postdoctoral Research Files/CAP2/raw_data"
+
+# (REQUIRED) The absolute path to save the preprocessed CAP data. Change this as needed.
+preprocessed_CAP_path: "Z:/Pena Postdoctoral Research Files/CAP2/preprocessed_CAP_data"
+
+# OPTIONAL: Where to save figures and other analysis outputs (default is 'local_output')
+local_output_path: "local_output"
