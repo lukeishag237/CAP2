@@ -1,0 +1,13 @@
+# config.yml.example
+# ---------------------------------------------------------
+# INSTRUCTIONS:
+# 1. Copy this file and rename it to 'local_config.yml'
+# 2. This file is ignored by Git. It is for your LOCAL settings only.
+# ---------------------------------------------------------
+
+# REQUIRED: The absolute path to the raw data on the shared drive.
+# Example: "Z:\Lab_Share\Project_X\Raw_Data"
+raw_data_path: "YOUR_PATH_HERE"
+
+# OPTIONAL: Where to save figures (default is 'local_output')
+output_path: "local_output"

@@ -1,0 +1,9 @@
+
+# Git will ignore the local configuration file
+local_config.yml
+
+# Git will ignore the all the contents of local_output 
+# except for the placeholder .gitkeep file but not the
+# folder itself.
+local_output/*
+!local_output/.gitkeep

@@ -1,0 +1,39 @@
+name: biomed-base
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - pandas
+  - openpyxl  # Optional; needed to open .xlsx files (recommended)
+  - matplotlib
+  - seaborn
+  - scikit-learn
+  - jupyterlab
+  - ipython
+  - pyyaml # only if using YAML config files 
+  - scikit-image # only if doing image analysis
+  - tifffile # only if doing image analysis
+  - napari # only if doing image analysis
+  - pydub # only if need to convert audio formats (e.g., mp3 to wav, m4a to wav, vice versa)
+  - nidaqmx-python # only if working with NI DAQ hardware
+  - pip # for pip installs below
+  - pip:
+      - matlabengine==23.2.3  # only if you need to run MATLAB within Python (e.g., to control a PowerLab device via LabChart); version must be matched to your MATLAB version (e.g., 23.2.3 requires MATLAB R2023b); see https://pypi.org/project/matlabengine/#history for other versions
+  
+#
+# Create the environment in mamba (or conda; replace 'mamba' with 'conda' if using conda):
+# mamba env create --name biomed-base --file biomed-base.yml
+#
+# Clean up & update protocol
+# update the YAML if you've added packages (change path as needed):
+# mamba env export --from-history > biomed-base.yml
+#
+# Update the environment if you add/remove packages:
+# mamba env update --name biomed-base --file biomed-base.yml --prune
+#
+# periodically recreate cleanly
+# mamba deactivate
+# mamba env remove --name biomed-base
+# mamba env create --name biomed-base --file biomed-base.yml
