@@ -717,7 +717,7 @@ experiment_metadata_table = readtable(experiment_metadata_filename);
 expdate_values = arrayfun(@(x) num2str(x), experiment_metadata_table.expdate_values, 'UniformOutput', false);
 file_prefix_outputs_values = {};
 for i = 1:length(experiment_metadata_table.file_prefix_outputs_values)
-    file_prefix_outputs_values{i} = [preprocessed_CAP_path, '/', experiment_metadata_table.file_prefix_outputs_values{i}];
+    file_prefix_outputs_values{i,1} = [preprocessed_CAP_path, '/', experiment_metadata_table.file_prefix_outputs_values{i}];
 end
 dataset_stim_polarity = experiment_metadata_table.dataset_stim_polarity;
 dataset_electrodetype = experiment_metadata_table.dataset_electrodetype;
@@ -923,6 +923,17 @@ for dataset_ind = 1:numel(expdate_values)
     expdate             = expdate_values{dataset_ind};
     file_prefix_outputs = file_prefix_outputs_values{dataset_ind};
     ch_num_neural = 1;
+
+    % If the dataset is listed for exclusion, delete its preprocessed
+    % CAP data or skip preprocessing depending on whether the dataset
+    % already exists
+    trial_ID = split(file_prefix_outputs,'/');
+    trial_ID = trial_ID{end};
+    if (ismember(trial_ID,exclusion_list.trial_unique_ID))
+        fprintf('\tSkipping dataset because it is listed for exclusion\n\n');
+        continue;
+    end
+
     load([file_prefix_outputs '/CAPData_ch' num2str(ch_num_neural) '.mat'],'t_window','ch_neural_avg')
     
     % Calculate metrics and store in a table
@@ -983,6 +994,7 @@ save([folder_output_metrics,'/metrics_table.mat'],'metrics_table','metric_names'
 %% Plot all the in vivo date vs. CV (color-coded per rat, separated by VN (myel), VN (unmyel), SN, and tibial) (all polarity 1)
 % sort by polarity, then by fiber type, then by nerve, then by animal
 % number
+error('This line does not work currently. Need to add the .xlsx file to the data directory; the hardcoded path is obsolete')
 plot_signal_comparison('C:\Grill_Lab_Files\Grill_Lab_Analysis_Code_and_Data\simulation_data_files\simulationA0103\look_at_data_variability.xlsx');
 
 %% Compile data: Max CAP, SN stim & SN rec, monophasic, PW = 50 us
