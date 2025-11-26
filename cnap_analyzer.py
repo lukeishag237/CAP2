@@ -154,7 +154,7 @@ class CNAPDataProcessor:
     files, to process CNAP data, and visualize results.
     Uses CNAPAnalyzer to get features.
     """
-    def __init__(self, metadata_file: str, local_output_path: str):
+    def __init__(self, metadata_file: str, local_output_path: str, loaded_df = None):
         """
         Initialize with path to metadata Excel file.
         
@@ -162,7 +162,7 @@ class CNAPDataProcessor:
             metadata_file (str): Path to Excel file containing CNAP metadata
         """
         self.metadata_file = metadata_file
-        self.data_df = None
+        self.data_df = loaded_df
         # Initialize the CNAP analyzer with default parameters
         self.analyzer = CNAPAnalyzer()
         self.output_path = local_output_path
@@ -589,31 +589,44 @@ assert Path(PREPROCCESSED_CAP_PATH).exists(), f"Preprocessed CAP path '{PREPROCC
 assert Path(LOCAL_OUTPUT_PATH).exists(), f"Local output path '{LOCAL_OUTPUT_PATH}' does not exist. Please check your local_config.yml file."
 
 # --- End of config ---
+# load df into a DataProcessor obj (if it exists)
+STORED_DF_PATH = "/Users/lukeishag/Documents/PERL/CAP2/stored_df.pkl"
+if Path(STORED_DF_PATH).exists():
+    stored_df = pd.read_pickle(STORED_DF_PATH)
+    processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH, stored_df)
+else:
+    # Load the preprocessed .mat files into one big DataFrame, but add some extra
+    # features from the CAPs (e.g., auc, peak; see
+    # CNAPDataProcessor.load_mat_file()). There is one folder of .mat files per row
+    # in the Excel metadata file. The resulting DataFrame is in processor.data_df
+    # processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
+    processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
+    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False)
 
-# Load the preprocessed .mat files into one big DataFrame, but add some extra
-# features from the CAPs (e.g., auc, peak; see
-# CNAPDataProcessor.load_mat_file()). There is one folder of .mat files per row
-# in the Excel metadata file. The resulting DataFrame is in processor.data_df
-# processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
-processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
-processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False)
+    #Save DataFrame to a .pkl file (if it doesn't already exist)
+    processor.data_df.to_pickle(STORED_DF_PATH)
+
 
 # Plot summary plots: plot_metric_grid plots all the features below from each
 # nerve as a separate subplot; plot_combined_dates combines all the features
 # from all nerves into a single plots
-nerve_str_tuple = ('cVN','SN','tibial')
-for nerve_str in nerve_str_tuple:
-    for metric in ['peak_amplitude', 'peak_time', 'auc']:
-        processor.plot_combined_dates(metric, nerve=nerve_str)
-        processor.plot_metric_grid(metric, nerve=nerve_str, ncols=8)
+plot_summary = False
+if plot_summary:
+    nerve_str_tuple = ('cVN','SN','tibial')
+    for nerve_str in nerve_str_tuple:
+        for metric in ['peak_amplitude', 'peak_time', 'auc']:
+            processor.plot_combined_dates(metric, nerve=nerve_str)
+            processor.plot_metric_grid(metric, nerve=nerve_str, ncols=8)
 
 # Plot all the CAPs for each unique exp date that is from cervical vagus nerve
-nerve_str_tuple = ('cVN','SN','tibial')
-fiber_type = 'myel'
-for nerve_str in nerve_str_tuple:
-    matching_expdates = sorted(processor.data_df[(processor.data_df['rec_nerve'] == nerve_str) & (processor.data_df['target_fiber_types'] == fiber_type)]['expdate'].unique())
-    for exp_date in matching_expdates:
-        processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
+plot_CAPS = True
+if plot_CAPS:
+    nerve_str_tuple = ('cVN','SN','tibial')
+    fiber_type = 'myel'
+    for nerve_str in nerve_str_tuple:
+        matching_expdates = sorted(processor.data_df[(processor.data_df['rec_nerve'] == nerve_str) & (processor.data_df['target_fiber_types'] == fiber_type)]['expdate'].unique())
+        for exp_date in matching_expdates:
+            processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
 
 # TODO: The stim artifact window is not set correctly for unmyelinated fibers yet.
 # fiber_type = 'unmyel'
