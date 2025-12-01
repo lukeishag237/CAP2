@@ -21,7 +21,8 @@ class CNAPAnalyzer:
                  sampling_rate: float = np.nan, # sampling rate in Hz; set to nan until set per recording
                  artifact_window_ms: float = 0.16, # 2.0,
                  min_cv_ms: float = 5, #0.2,  # minimum conduction velocity in m/s; used to set max bound
-                 distance_mm: float = np.nan  # distance between stimulus and recording in mm; set to nan until set per recording
+                 distance_mm: float = np.nan,  # distance between stimulus and recording in mm; set to nan until set per recording
+                 metadata_df = None # loaded data from the xlsx file - we will use this to calculate len of stim artifact
                 ):
         """
         Initialize the CNAP analyzer.
@@ -38,6 +39,8 @@ class CNAPAnalyzer:
         self.artifact_window_ms = artifact_window_ms
         self.min_cv = min_cv_ms
         self.distance = distance_mm
+        self.metadata_df = metadata_df # we will set this in the dataprocessor.plot_data method
+        self.idx = np.nan # keep track of which row in metadata df we are in
         
         
     def find_signal_bounds(self, 
@@ -55,7 +58,12 @@ class CNAPAnalyzer:
             Tuple of (start_idx, end_idx)
         """
         # Find artifact end (start of analysis window)
-        artifact_end_idx = np.where(times >= self.artifact_window_ms)[0][0]
+        polarity = 1
+        if self.metadata_df['phase_type'][self.idx] == "biphasic":
+            polarity = 2
+        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity
+
+        artifact_end_idx = np.where(times >= artifact_end_ms)[0][0]
         
         # Find analysis window end based on conduction velocity
         analysis_end_idx = np.where(times >= (self.distance / self.min_cv))[0][0]
@@ -143,7 +151,8 @@ class CNAPAnalyzer:
         plt.xlim(times[start_idx] - buffer_time_to_plot, times[end_idx] + buffer_time_to_plot)
         plt.xlabel('Time (ms)')
         plt.ylabel('Amplitude')
-        plt.title('CNAP Analysis')
+        id = self.metadata_df["file_prefix_outputs_values"][self.idx]
+        plt.title(f'CNAP Analysis - {id}')
         plt.legend()
         plt.grid(True)
         plt.show()
@@ -227,9 +236,11 @@ class CNAPDataProcessor:
     def process_data(self, preprocessed_CAP_path: str, flag_plot: bool = False) -> None:
         """Load all CAPs and store CAPs and features in a DataFrame."""
         metadata_df = pd.read_excel(self.metadata_file)
+        self.analyzer.metadata_df = metadata_df
         data_list = []
         
         for idx, row in metadata_df.iterrows():
+            self.analyzer.idx = idx
             file_prefix = row['file_prefix_outputs_values']
             mat_files = glob.glob(str(Path(preprocessed_CAP_path) / file_prefix / '*.mat'))
             
@@ -601,7 +612,7 @@ else:
     # in the Excel metadata file. The resulting DataFrame is in processor.data_df
     # processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
     processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
-    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False)
+    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=True)
 
     #Save DataFrame to a .pkl file (if it doesn't already exist)
     processor.data_df.to_pickle(STORED_DF_PATH)
