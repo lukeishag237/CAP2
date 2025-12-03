@@ -159,15 +159,14 @@ CAPvsFreq_axlim = [0    4000                     0     y_max_f];
 
 
 cache_directory = get_cache_directory(file_prefix_outputs);
-[~,raw_filename,~] = fileparts(file_prefix_adicht);
-cache_filepath = fullfile(cache_directory,[raw_filename,'.mat']);
+cache_filepath = fullfile(cache_directory,sprintf('ch%d.mat',ch_num_neural));
 
 if exist(cache_filepath,'file')==2
     fprintf('Loading cached data: %s\n', cache_filepath);
-    load(cache_filepath);
+    load(cache_filepath,'ch_Vinput','ch_neural','cached_trial_values');
 
     % Ensure that trial_values is the same
-    assert(isequal(trial_values,cached_trial_values),'Error: trial_values in cached data does not match trial_values supplied; delete the cached data and rerun in Window 64-bit')
+    assert(isequal(trial_values,cached_trial_values),'Error: trial_values in cached neural data does not match trial_values supplied; delete the cached data and rerun in Window 64-bit')
 else
 
 %% Load data
@@ -221,16 +220,29 @@ for trial_ind = 1:numel(trial_values)
 end
 
 % Save ch_Vinput and ch_neural as .mat files to avoid having to load
-% raw LabChart files
-% Make a "mat_of_raw" folder
+% raw LabChart files, since Windows 64-bit is required to load LabChart
+% files using adi.readFile()
 if ~exist(cache_directory,'dir')
     mkdir(cache_directory)
 end
-    
-fprintf('Saving new cache: %s\n', cache_filepath);
+
+fprintf('Saving new neural data cache: %s\n', cache_filepath);
 cached_trial_values = trial_values;
-save(cache_filepath,'ch_Vinput','ch_neural','cached_trial_values','-v7.3');
-    
+units.stim_rec_dist = 'mm';
+units.gain_value = 'unitless';
+units.fs = 'samples/sec';
+units.amp_values_nominal = 'V';
+units.V2mA = 'mA/V';
+units.ch_neural = 'V*gain_value';
+units.Vinput = 'V';
+save(cache_filepath, ...
+    'ch_neural', 'ch_Vinput', ...      % data
+    'cached_trial_values', ...         % integrity check metadata
+    'stim_rec_dist', 'gain_value', 'V2mA',... % key physical parameters
+    'fs', 'amp_values_nominal', ...
+    'units', ...                       % units of key physical parameters
+    '-v7.3');
+
 end
 
 %% Stim-triggered averaging of neural data
