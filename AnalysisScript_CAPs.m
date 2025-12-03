@@ -157,6 +157,19 @@ CAPvsTime_axlim = [-0.5 max(CV_latencybounds(:)) y_min y_max];
 CAPvsCV_axlim   = [0    max(CV_bounds(:))        y_min y_max];
 CAPvsFreq_axlim = [0    4000                     0     y_max_f];
 
+
+cache_directory = get_cache_directory(file_prefix_outputs);
+[~,raw_filename,~] = fileparts(file_prefix_adicht);
+cache_filepath = fullfile(cache_directory,[raw_filename,'.mat']);
+
+if exist(cache_filepath,'file')==2
+    fprintf('Loading cached data: %s\n', cache_filepath);
+    load(cache_filepath);
+
+    % Ensure that trial_values is the same
+    assert(isequal(trial_values,cached_trial_values),'Error: trial_values in cached data does not match trial_values supplied; delete the cached data and rerun in Window 64-bit')
+else
+
 %% Load data
 fname       = file_prefix_adicht;
 mydata      = adi.readFile(fname);
@@ -205,6 +218,19 @@ for trial_ind = 1:numel(trial_values)
         subplot(subplot_rows,subplot_cols,1); plot(ch_Vinput{trial_ind}); title(comment_trial_start)
         subplot(subplot_rows,subplot_cols,2); plot(ch_neural{trial_ind});
     end
+end
+
+% Save ch_Vinput and ch_neural as .mat files to avoid having to load
+% raw LabChart files
+% Make a "mat_of_raw" folder
+if ~exist(cache_directory,'dir')
+    mkdir(cache_directory)
+end
+    
+fprintf('Saving new cache: %s\n', cache_filepath);
+cached_trial_values = trial_values;
+save(cache_filepath,'ch_Vinput','ch_neural','cached_trial_values','-v7.3');
+    
 end
 
 %% Stim-triggered averaging of neural data
