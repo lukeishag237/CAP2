@@ -852,11 +852,11 @@ if reanalyze_data == 1
             continue;
         end
 
-        % If the dataset already exists, skip it
-        if exist(file_prefix_outputs,'dir')
-            fprintf('\tSkipping dataset because its folder already exists\n\n');
-            continue;
-        end
+        % % If the dataset already exists, skip it
+        % if exist(file_prefix_outputs,'dir')
+        %     fprintf('\tSkipping dataset because its folder already exists\n\n');
+        %     continue;
+        % end
 
         % Preprocess CAPs
         mkdir(file_prefix_outputs)
