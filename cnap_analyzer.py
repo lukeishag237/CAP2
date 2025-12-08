@@ -1,4 +1,4 @@
-
+import os
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -61,12 +61,15 @@ class CNAPAnalyzer:
         polarity = 1
         if self.metadata_df['phase_type'][self.idx] == "biphasic":
             polarity = 2
-        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity
+        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.04
 
         artifact_end_idx = np.where(times >= artifact_end_ms)[0][0]
         
-        # Find analysis window end based on conduction velocity
-        analysis_end_idx = np.where(times >= (self.distance / self.min_cv))[0][0]
+        # Find analysis window end based on conduction velocity. Added an if statement to implement unmyel fibers
+        if self.metadata_df["target_fiber_types"][self.idx] == 'myel':
+            analysis_end_idx = np.where(times >= (self.distance / self.min_cv))[0][0]
+        else:
+            analysis_end_idx = np.where(times >= (self.distance / .1))[0][0] # what should this value be?
         
         return artifact_end_idx, analysis_end_idx
     
@@ -148,7 +151,9 @@ class CNAPAnalyzer:
         
 
         buffer_time_to_plot = (times[end_idx]-times[start_idx])*0.05
-        plt.xlim(times[start_idx] - buffer_time_to_plot, times[end_idx] + buffer_time_to_plot)
+        plot_start_idx = np.where(times == 0)[0][0] - 10
+        # plt.xlim(times[start_idx] - buffer_time_to_plot, times[end_idx] + buffer_time_to_plot)
+        plt.xlim(times[plot_start_idx], times[end_idx] + buffer_time_to_plot)
         plt.xlabel('Time (ms)')
         plt.ylabel('Amplitude')
         id = self.metadata_df["file_prefix_outputs_values"][self.idx]
@@ -601,7 +606,7 @@ assert Path(LOCAL_OUTPUT_PATH).exists(), f"Local output path '{LOCAL_OUTPUT_PATH
 
 # --- End of config ---
 # load df into a DataProcessor obj (if it exists)
-STORED_DF_PATH = "/Users/lukeishag/Documents/PERL/CAP2/stored_df.pkl"
+STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH,"stored_df.pkl")
 if Path(STORED_DF_PATH).exists():
     stored_df = pd.read_pickle(STORED_DF_PATH)
     processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH, stored_df)
@@ -612,7 +617,7 @@ else:
     # in the Excel metadata file. The resulting DataFrame is in processor.data_df
     # processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
     processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
-    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=True)
+    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False) #FlagPlot to plot the gutcheck bounds
 
     #Save DataFrame to a .pkl file (if it doesn't already exist)
     processor.data_df.to_pickle(STORED_DF_PATH)
@@ -630,8 +635,8 @@ if plot_summary:
             processor.plot_metric_grid(metric, nerve=nerve_str, ncols=8)
 
 # Plot all the CAPs for each unique exp date that is from cervical vagus nerve
-plot_CAPS = True
-if plot_CAPS:
+plot_CAPS_myel = True
+if plot_CAPS_myel:
     nerve_str_tuple = ('cVN','SN','tibial')
     fiber_type = 'myel'
     for nerve_str in nerve_str_tuple:
@@ -640,10 +645,12 @@ if plot_CAPS:
             processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
 
 # TODO: The stim artifact window is not set correctly for unmyelinated fibers yet.
-# fiber_type = 'unmyel'
-# nerve_str = 'cVN' # Only the cVN has unmyelinated fiber data
-# matching_expdates = sorted(processor.data_df[(processor.data_df['rec_nerve'] == nerve_str) & (processor.data_df['target_fiber_types'] == fiber_type)]['expdate'].unique())
-# for exp_date in matching_expdates:
-#     processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
+plot_CAPS_unmyel = False
+if plot_CAPS_unmyel:
+    fiber_type = 'unmyel'
+    nerve_str = 'cVN' # Only the cVN has unmyelinated fiber data
+    matching_expdates = sorted(processor.data_df[(processor.data_df['rec_nerve'] == nerve_str) & (processor.data_df['target_fiber_types'] == fiber_type)]['expdate'].unique())
+    for exp_date in matching_expdates:
+        processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
     
 
