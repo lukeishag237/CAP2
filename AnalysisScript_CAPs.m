@@ -255,9 +255,32 @@ for trial_ind = 1:numel(trial_values)
     % Collect indices of rising edges of Vinput (also falling edges if it
     % finds <Ntrig_expected)
     threshold = max([threshold_def Vinput_values(trial_ind)/10]);
-%     [trig_indices] = thresh_index_SDcurve(ch_Vinput{trial_ind},threshold,Ntrig_expected);
-    [~,trig_indices] = findpeaks(diff(abs(ch_Vinput{trial_ind})),'MinPeakHeight',0.01,'MinPeakDistance',0.9*(stim_period/1e3)*fs);
+
+    % Commented out for unknown reason
+    % [trig_indices] = thresh_index_SDcurve(ch_Vinput{trial_ind},threshold,Ntrig_expected);
+    % Commented out because derivative of biphasic sometimes recognizes the
+    % middle of the pulse
+    % [~,trig_indices] = findpeaks(diff(abs(ch_Vinput{trial_ind})),'MinPeakHeight',0.01,'MinPeakDistance',0.9*(stim_period/1e3)*fs);
     
+    % NEW: Simple start detection using mask
+    r = abs(ch_Vinput{trial_ind});   % rectify to be safe from polarity
+    threshold = max(threshold_def, Vinput_values(trial_ind)/10);
+    mask = r > threshold;
+    trig_indices = (find(diff([0; mask]) == 1))-1;
+
+    % need to make sure biphasic pulse are only recognized once
+    minDist = 100;  % hard-coded - could this be automatic?
+
+    keep = true(size(trig_indices));
+    for i = 2:numel(trig_indices)
+        if trig_indices(i) - trig_indices(i-1) <= minDist
+            keep(i) = false;  % discard second peak
+        end
+    end
+    trig_indices = trig_indices(keep);
+    % _________________________________________
+
+
     if (strcmp(phase_type,'biphasic_burst') == 1)
         trig_indices = trig_indices(1:N_pulses_in_burst:end);
     end
