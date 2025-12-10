@@ -262,24 +262,28 @@ for trial_ind = 1:numel(trial_values)
     % middle of the pulse
     % [~,trig_indices] = findpeaks(diff(abs(ch_Vinput{trial_ind})),'MinPeakHeight',0.01,'MinPeakDistance',0.9*(stim_period/1e3)*fs);
     
-    % NEW: Simple start detection using mask
-    r = abs(ch_Vinput{trial_ind});   % rectify to be safe from polarity
-    threshold = max(threshold_def, Vinput_values(trial_ind)/10);
-    mask = r > threshold;
-    trig_indices = (find(diff([0; mask]) == 1))-1;
-
-    % need to make sure biphasic pulse are only recognized once
-    minDist = 100;  % hard-coded - could this be automatic?
-
-    keep = true(size(trig_indices));
-    for i = 2:numel(trig_indices)
-        if trig_indices(i) - trig_indices(i-1) <= minDist
-            keep(i) = false;  % discard second peak
-        end
-    end
-    trig_indices = trig_indices(keep);
-    % _________________________________________
-
+	% Collect indices of rising edges of Vinput
+	% Calculate minimum samples between pulses (90% of expected period for robustness)
+	min_samples_between_pulses = round(0.9 * (stim_period/1e3) * fs);
+	
+	% Threshold for detecting pulse edges 
+	edge_detection_threshold = 0.01;
+	
+	% Compute absolute derivative so that flipped polarity pulses have the same sign
+	abs_derivative = diff(abs(ch_Vinput{trial_ind}));
+	
+	% Find the start of the first pulse
+	trig_indices(1) = find(abs_derivative > edge_detection_threshold, 1);
+	
+	% Find the start of subsequent pulses using minimum distance constraint
+	for pulse_idx = 2:Ntrig_expected
+		% Define search window starting after minimum expected pulse separation
+		search_start_idx = min_samples_between_pulses + trig_indices(pulse_idx - 1);
+		
+		% Find next pulse onset within remaining signal
+		relative_onset = find(abs_derivative(search_start_idx:end) > edge_detection_threshold, 1);
+		trig_indices(pulse_idx) = search_start_idx - 1 + relative_onset;
+	end
 
     if (strcmp(phase_type,'biphasic_burst') == 1)
         trig_indices = trig_indices(1:N_pulses_in_burst:end);
