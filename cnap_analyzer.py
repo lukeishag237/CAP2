@@ -61,7 +61,7 @@ class CNAPAnalyzer:
         polarity = 1
         if self.metadata_df['phase_type'][self.idx] == "biphasic":
             polarity = 2
-        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.04
+        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.16
 
         artifact_end_idx = np.where(times >= artifact_end_ms)[0][0]
         
@@ -371,7 +371,7 @@ class CNAPDataProcessor:
         plt.grid(True)
         plt.show()
 
-    def plot_metric_grid(self, metric: str, nerve: str, ncols: int = 5, save_fig: bool = False) -> None:
+    def plot_metric_grid(self, metric: str, nerve: str, fiber_type: str, ncols: int = 5, save_fig: bool = False) -> None:
         """
         Create a grid of plots for a given metric (peak_amplitude, peak_time, or auc)
         for a specific nerve type, with a fixed number of columns.
@@ -380,6 +380,7 @@ class CNAPDataProcessor:
             metric (str): The metric to plot ('peak_amplitude', 'peak_time', or 'auc')
             nerve (str): The nerve type to plot
             ncols (int): Number of columns in the grid
+            fiber_type (str): myel or unmyel
             save_fig (bool): Whether to save the figure
         """
         # Get dates for this nerve
@@ -405,10 +406,14 @@ class CNAPDataProcessor:
         nerve_data = self.data_df[
             (self.data_df['rec_nerve'] == nerve) &
             (self.data_df['expdate'].isin(dates)) &
-            (self.data_df['target_fiber_types'] == 'myel')
+            (self.data_df['target_fiber_types'] == fiber_type)
         ]
+
+        # Commented this out because it is no longer true!
         # Print warning that only myelinated fibers are being plotted for this nerve
-        print(f"Warning: Only myelinated fibers are being plotted for {nerve}.")
+        # print(f"Warning: Only myelinated fibers are being plotted for {nerve}.")
+
+
         if not nerve_data.empty:
             xmin = nerve_data['stim_rec_dist'].min()
             xmax = nerve_data['stim_rec_dist'].max()
@@ -520,7 +525,7 @@ class CNAPDataProcessor:
         # plt.savefig(save_file_name)
         plt.show()
 
-    def plot_combined_dates(self, metric: str, nerve: str, save_fig: bool = False) -> None:
+    def plot_combined_dates(self, metric: str, nerve: str, fiber_type: str, save_fig: bool = False) -> None:
         """
         Create a single plot combining all experiment dates for a given metric and nerve type,
         using seaborn for enhanced visualization.
@@ -528,13 +533,15 @@ class CNAPDataProcessor:
         Args:
             metric (str): The metric to plot ('peak_amplitude', 'peak_time', or 'auc')
             nerve (str): The nerve type to plot
+            fiber_type (str): myel or unmyel
             save_fig (bool): Whether to save the figure
         """
         # Filter data for the specified nerve
-        # nerve_data = self.data_df[self.data_df['rec_nerve'] == nerve & (self.data_df['target_fiber_types'] == 'myel')].copy()
-        nerve_data = self.data_df[(self.data_df['rec_nerve'] == nerve) & (self.data_df['target_fiber_types'] == 'myel')].copy()
-        # Print warning that only myelinated fibers are being plotted
-        print(f"Warning: Only myelinated fibers are being plotted for {nerve}.")
+        nerve_data = self.data_df[(self.data_df['rec_nerve'] == nerve) & (self.data_df['target_fiber_types'] == fiber_type)].copy()
+        
+        # Commented this out because it is no longer true!
+        # Print warning that only myelinated fibers are being plotted 
+        # print(f"Warning: Only myelinated fibers are being plotted for {nerve}.")
         
         # Dictionary for metric labels
         metric_labels = {
@@ -562,7 +569,7 @@ class CNAPDataProcessor:
         # Customize the plot
         plt.xlabel('Distance (mm)', fontsize=12)
         plt.ylabel(metric_labels[metric], fontsize=12)
-        plt.title(f'{nerve} - {metric_labels[metric]} (All Dates Combined)', fontsize=14)
+        plt.title(f'{nerve} - {metric_labels[metric]} (All Dates Combined) - {fiber_type}', fontsize=14)
         
         # Customize legend
         plt.legend(
@@ -626,16 +633,17 @@ else:
 # Plot summary plots: plot_metric_grid plots all the features below from each
 # nerve as a separate subplot; plot_combined_dates combines all the features
 # from all nerves into a single plots
-plot_summary = False
-if plot_summary:
+plot_summary_myel = False
+if plot_summary_myel:
+    fiber_type = 'myel'
     nerve_str_tuple = ('cVN','SN','tibial')
     for nerve_str in nerve_str_tuple:
         for metric in ['peak_amplitude', 'peak_time', 'auc']:
-            processor.plot_combined_dates(metric, nerve=nerve_str)
-            processor.plot_metric_grid(metric, nerve=nerve_str, ncols=8)
+            processor.plot_combined_dates(metric, nerve=nerve_str, fiber_type=fiber_type)
+            processor.plot_metric_grid(metric, nerve=nerve_str, fiber_type=fiber_type, ncols=8)
 
 # Plot all the CAPs for each unique exp date that is from cervical vagus nerve
-plot_CAPS_myel = True
+plot_CAPS_myel = False
 if plot_CAPS_myel:
     nerve_str_tuple = ('cVN','SN','tibial')
     fiber_type = 'myel'
@@ -645,7 +653,16 @@ if plot_CAPS_myel:
             processor.plot_data(exp_date=exp_date, fiber_type=fiber_type, nerve=nerve_str, show_analysis=True)
 
 # TODO: The stim artifact window is not set correctly for unmyelinated fibers yet.
-plot_CAPS_unmyel = False
+# Same plots as the above two sections but for unmyel
+plot_summary_unmyel = True
+if plot_summary_unmyel:
+    fiber_type = 'unmyel'
+    nerve_str = 'cVN'  # Only the cVN has unmyelinated fiber data
+    for metric in ['peak_amplitude', 'peak_time', 'auc']:
+        processor.plot_combined_dates(metric, nerve=nerve_str, fiber_type=fiber_type)
+        processor.plot_metric_grid(metric, nerve=nerve_str, fiber_type=fiber_type, ncols=8)
+
+plot_CAPS_unmyel = True
 if plot_CAPS_unmyel:
     fiber_type = 'unmyel'
     nerve_str = 'cVN' # Only the cVN has unmyelinated fiber data
