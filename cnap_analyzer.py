@@ -42,11 +42,9 @@ class CNAPAnalyzer:
         self.metadata_df = metadata_df # we will set this in the dataprocessor.plot_data method
         self.idx = np.nan # keep track of which row in metadata df we are in
         
-        
-    def find_signal_bounds(self, 
-                          signal: np.ndarray, 
-                          times: np.ndarray
-                         ) -> Tuple[int, int]:
+
+    #NEW: Combined with peak finding to make sure we don't go too far
+    def find_signal_bounds_and_peak(self, signal: np.ndarray, times: np.ndarray) -> Tuple[int, int, Dict[str, float], ]:
         """
         Find the appropriate start and end indices for signal analysis.
         
@@ -61,41 +59,55 @@ class CNAPAnalyzer:
         polarity = 1
         if self.metadata_df['phase_type'][self.idx] == "biphasic":
             polarity = 2
-        artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.16
-
-        artifact_end_idx = np.where(times >= artifact_end_ms)[0][0]
         
         # Find analysis window end based on conduction velocity. Added an if statement to implement unmyel fibers
         if self.metadata_df["target_fiber_types"][self.idx] == 'myel':
             analysis_end_idx = np.where(times >= (self.distance / self.min_cv))[0][0]
-        else:
+            artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.16
+        else: #unmyel
             analysis_end_idx = np.where(times >= (self.distance / .1))[0][0] # what should this value be?
+            artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 2 # is this wrong?
         
-        return artifact_end_idx, analysis_end_idx
+        # Calculate important indexes to return
+        artifact_end_idx = np.where(times >= artifact_end_ms)[0][0]
+        peak_idx = artifact_end_idx + np.argmax(signal[artifact_end_idx:analysis_end_idx])
+
+        # New! if CAP is DECREASING at artifact end (analysis start) - we must've went too far
+        # Backtrack to peak and see if it is higher than our current peak  - reset artifact idx if it is
+        if 1 < artifact_end_idx < len(signal) - 1:
+            slope = signal[artifact_end_idx] - signal[artifact_end_idx - 1]
+            if slope < 0:
+                i = artifact_end_idx - 1
+                # Walk backward until slope flips or start is reached
+                while i > 1:
+                    prev_slope = signal[i] - signal[i - 1]
+                    next_slope = signal[i + 1] - signal[i]
+
+                    # Local maximum condition
+                    if prev_slope > 0 and next_slope <= 0:
+                        # Only update if this peak is higher than current peak
+                        if signal[i] > signal[peak_idx]:
+                            artifact_end_idx = i-10
+                            peak_idx = i
+                        break
+
+                    i -= 1
+
+        return artifact_end_idx, analysis_end_idx, {'peak_time': times[peak_idx],'peak_amplitude': signal[peak_idx]}
     
-    def find_peak(self, 
-                  signal: np.ndarray, 
-                  times: np.ndarray
-                 ) -> Dict[str, float]:
-        """
-        Find the maximum peak in the neural component of the signal.
-        
-        Args:
-            signal: CNAP signal array
-            times: Time points array (ms)
-            
-        Returns:
-            Dictionary containing peak time and amplitude
-        """
-        start_idx, end_idx = self.find_signal_bounds(signal, times)
-        
-        # Find peak in the relevant window
-        peak_idx = start_idx + np.argmax(signal[start_idx:end_idx])
-        
-        return {
-            'peak_time': times[peak_idx],
-            'peak_amplitude': signal[peak_idx]
-        }
+    # Rolled this functionality into the find_signal_bounds function - unused now
+    # def find_peak(self, signal: np.ndarray, times: np.ndarray) -> Dict[str, float]:
+    #     """
+    #     Find the maximum peak in the neural component of the signal.     
+    #     Args:
+    #         signal: CNAP signal array
+    #         times: Time points array (ms) 
+    #     Returns:
+    #         Dictionary containing peak time and amplitude
+    #     """
+    #     start_idx, end_idx = self.find_signal_bounds(signal, times)
+    #     peak_idx = start_idx + np.argmax(signal[start_idx:end_idx])
+    #     return {'peak_time': times[peak_idx],'peak_amplitude': signal[peak_idx]}
     
     def calculate_auc(self, 
                      signal: np.ndarray, 
@@ -112,7 +124,7 @@ class CNAPAnalyzer:
         Returns:
             Area under the curve
         """
-        start_idx, end_idx = self.find_signal_bounds(signal, times)
+        start_idx, end_idx, peak_info = self.find_signal_bounds_and_peak(signal, times)
         
         # auc = integrate.trapz(np.abs(signal[start_idx:end_idx]),
         #                         times[start_idx:end_idx])
@@ -134,8 +146,7 @@ class CNAPAnalyzer:
             times: Time points array (ms)
             show_bounds: Whether to show analysis bounds
         """
-        start_idx, end_idx = self.find_signal_bounds(signal, times)
-        peak_info = self.find_peak(signal, times)
+        start_idx, end_idx, peak_info = self.find_signal_bounds_and_peak(signal, times)
         
         plt.figure(figsize=(10, 6))
         plt.plot(times, signal, 'b-', label='CNAP')
@@ -218,7 +229,7 @@ class CNAPDataProcessor:
             signal = ch_neural_avg
         
         # Perform CNAP analysis
-        peak_info = self.analyzer.find_peak(signal, t_window)
+        analysis_start,analysis_end, peak_info = self.analyzer.find_signal_bounds_and_peak(signal, t_window)
         auc = self.analyzer.calculate_auc(signal, t_window)
 
         # Plot individual CAP with positive peak and bounds (optional)
@@ -324,7 +335,12 @@ class CNAPDataProcessor:
         # Customize plot
         g.set_axis_labels('time (ms)', 'V$_{pk-pk}$ ($\mu$V)')  
         g.set_titles(col_template="ch #{col_name}", row_template="polarity {row_name}")
-        g.axes[0,0].set_xlim([-0.1, 1.5])
+        if (fiber_type == 'myel'):
+            g.axes[0,0].set_xlim([-0.1, 1.5])
+        elif (fiber_type == 'unmyel'):
+            g.axes[0,0].set_xlim([-0.1,10])
+        else: 
+            raise ValueError("Unknown Fiber Type!")
         
         norm = plt.Normalize(subset['stim_rec_dist'].min(), subset['stim_rec_dist'].max())
         sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
@@ -412,7 +428,6 @@ class CNAPDataProcessor:
         # Commented this out because it is no longer true!
         # Print warning that only myelinated fibers are being plotted for this nerve
         # print(f"Warning: Only myelinated fibers are being plotted for {nerve}.")
-
 
         if not nerve_data.empty:
             xmin = nerve_data['stim_rec_dist'].min()
@@ -624,7 +639,7 @@ else:
     # in the Excel metadata file. The resulting DataFrame is in processor.data_df
     # processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
     processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
-    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False) #FlagPlot to plot the gutcheck bounds
+    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=True) #FlagPlot to plot the gutcheck bounds
 
     #Save DataFrame to a .pkl file (if it doesn't already exist)
     processor.data_df.to_pickle(STORED_DF_PATH)
@@ -654,7 +669,7 @@ if plot_CAPS_myel:
 
 # TODO: The stim artifact window is not set correctly for unmyelinated fibers yet.
 # Same plots as the above two sections but for unmyel
-plot_summary_unmyel = True
+plot_summary_unmyel = False
 if plot_summary_unmyel:
     fiber_type = 'unmyel'
     nerve_str = 'cVN'  # Only the cVN has unmyelinated fiber data
