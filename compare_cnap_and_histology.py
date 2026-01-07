@@ -4,7 +4,10 @@ import os
 import yaml
 import matplotlib.pyplot as plt
 
-# Helper function to store hist data in a DF - currently stores AUC
+
+# ============================================================
+# Helper: compute histology histogram AUC per nerve / sample
+# ============================================================
 def compute_histogram_auc_per_nerve(csv_file: str, bin_width: float = 0.07) -> pd.DataFrame:
     df = pd.read_csv(csv_file)
     results = []
@@ -32,7 +35,9 @@ def compute_histogram_auc_per_nerve(csv_file: str, bin_width: float = 0.07) -> p
     return pd.DataFrame(results)
 
 
-# Load paths/data
+# ============================================================
+# Load paths and data
+# ============================================================
 CONFIG_FILE = "local_config.yml"
 
 with open(CONFIG_FILE, 'r') as f:
@@ -52,7 +57,9 @@ hist_auc_df = compute_histogram_auc_per_nerve(csv_file)
 cnap_meta_df = pd.read_pickle(STORED_DF_PATH)
 
 
+# ============================================================
 # Normalize nerve labels
+# ============================================================
 histology_nerve_map = {
     'sciatic': 'SN',
     'tibial': 'tibial',
@@ -62,11 +69,13 @@ histology_nerve_map = {
 hist_auc_df['NerveCanonical'] = hist_auc_df['NerveType'].map(histology_nerve_map)
 cnap_meta_df['NerveCanonical'] = cnap_meta_df['rec_nerve']
 
-# Drop anything unmapped (safety)
 hist_auc_df = hist_auc_df.dropna(subset=['NerveCanonical'])
 cnap_meta_df = cnap_meta_df.dropna(subset=['NerveCanonical'])
 
-# Aggregate CNAP AUC 
+
+# ============================================================
+# Aggregate CNAP AUC (for averaged plot)
+# ============================================================
 avg_auc_df = (
     cnap_meta_df
     .groupby(['expdate', 'NerveCanonical'], as_index=False)
@@ -78,56 +87,53 @@ avg_auc_df = (
 )
 
 
-# hist -> CNAP mapping
+# ============================================================
+# Histology → CNAP date mapping
+# ============================================================
 mapping = {
-    '39-1': '20220531', #_5-_10
-    '39-2': '20220531', #_1-_4
+    '39-1': '20220531',
+    '39-2': '20220531',
     '40-1': '20220622',
-    '41-1': '20220720', #_4-_7
-    '41-2': '20220720', #_1-_3
+    '41-1': '20220720',
+    '41-2': '20220720',
     '43-1': '20221103',
-    '44-1': '20221108', #_1-_2
-    '44-2': '20221108', #_3-_4
+    '44-1': '20221108',
+    '44-2': '20221108',
     '45-1': '20221122',
-    '46-1': '20221201', #_7-_10
-    '46-2': '20221202', #_1-_6
+    '46-1': '20221201',
+    '46-2': '20221202',
     '47-1': '20230131',
-    '48-1': '20230207', #_4-_7
-    '48-2': '20230207' #_1-_3
-
+    '48-1': '20230207',
+    '48-2': '20230207'
 }
 
 hist_auc_df['expdate'] = hist_auc_df['Name'].map(mapping)
 hist_auc_df = hist_auc_df.dropna(subset=['expdate'])
 
 
-# Merge with nerve matching - ensure we only include the right sections from each data
-merged_df = pd.merge(
+# ============================================================
+# Merge for averaged plot
+# ============================================================
+merged_avg_df = pd.merge(
     hist_auc_df,
     avg_auc_df,
-    left_on=['expdate', 'NerveCanonical'],
-    right_on=['expdate', 'NerveCanonical'],
+    on=['expdate', 'NerveCanonical'],
     how='inner'
 )
 
 
-# sanity checks
-print("Merged rows:")
-print(merged_df[['Name', 'expdate', 'NerveCanonical']])
-
-print("\nCounts per nerve:")
-print(merged_df['NerveCanonical'].value_counts())
-
-
-# Plot
+# ============================================================
+# Plot 1: histology AUC vs mean CNAP AUC
+# ============================================================
 plt.figure(figsize=(7, 5))
+
 plt.scatter(
-    merged_df['hist_auc_fibers_um'],
-    merged_df['avg_auc'],
+    merged_avg_df['hist_auc_fibers_um'],
+    merged_avg_df['avg_auc'],
     s=80
 )
 
-for _, row in merged_df.iterrows():
+for _, row in merged_avg_df.iterrows():
     plt.text(
         row['hist_auc_fibers_um'] + 1,
         row['avg_auc'] + 5,
@@ -137,7 +143,49 @@ for _, row in merged_df.iterrows():
 
 plt.xlabel("Fiber diameter histogram AUC (fibers·μm)")
 plt.ylabel("Mean CNAP AUC")
-plt.title("Fiber Diameter AUC vs CNAP AUC\n(nerve-matched, temporary mapping)")
+plt.title("Fiber Diameter AUC vs CNAP AUC\n(histology-averaged, nerve-matched)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================================
+# Plot 2: per-record CNAP vs histology AUC (ch_num_neural == 1)
+# ============================================================
+valid_hist_pairs = hist_auc_df[['expdate', 'NerveCanonical']].drop_duplicates()
+
+# Filter CNAP rows:
+#   1) must have histology
+#   2) must be neural channel 1
+cnap_filtered = pd.merge(
+    cnap_meta_df,
+    valid_hist_pairs,
+    on=['expdate', 'NerveCanonical'],
+    how='inner'
+)
+
+cnap_filtered = cnap_filtered[cnap_filtered['ch_num_neural'] == 1]
+
+# Attach histology AUC
+cnap_with_hist = pd.merge(
+    cnap_filtered,
+    hist_auc_df[['expdate', 'NerveCanonical', 'hist_auc_fibers_um']],
+    on=['expdate', 'NerveCanonical'],
+    how='inner'
+)
+
+plt.figure(figsize=(7, 5))
+
+plt.scatter(
+    cnap_with_hist['hist_auc_fibers_um'],
+    cnap_with_hist['auc'],
+    s=60,
+    alpha=0.7
+)
+
+plt.xlabel("Fiber diameter histogram AUC (fibers·μm)")
+plt.ylabel("CNAP AUC (per recording)")
+plt.title("Fiber Diameter AUC vs CNAP AUC\n(per-record, ch_num_neural = 1)")
 plt.grid(True)
 plt.tight_layout()
 plt.show()
