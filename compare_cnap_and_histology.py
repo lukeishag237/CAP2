@@ -1,191 +1,163 @@
 import numpy as np
 import pandas as pd
-import os
-import yaml
 import matplotlib.pyplot as plt
-
-
-# ============================================================
-# Helper: compute histology histogram AUC per nerve / sample
-# ============================================================
-def compute_histogram_auc_per_nerve(csv_file: str, bin_width: float = 0.07) -> pd.DataFrame:
-    df = pd.read_csv(csv_file)
-    results = []
-
-    for (nerve_type, name), group in df.groupby(['NerveType', 'Name']):
-        diameters = group['MinFeret'].values
-        if len(diameters) == 0:
-            continue
-
-        max_diameter = diameters.max()
-        bin_edges = np.arange(0, max_diameter + bin_width, bin_width)
-        counts, _ = np.histogram(diameters, bins=bin_edges)
-
-        auc = np.sum(counts) * bin_width
-
-        results.append({
-            'NerveType': nerve_type,
-            'Name': name,
-            'n_fibers': len(diameters),
-            'bin_width_um': bin_width,
-            'hist_auc_fibers_um': auc,
-            'fiber_count_check': np.sum(counts)
-        })
-
-    return pd.DataFrame(results)
-
+import statsmodels.api as sm
+import yaml
+import os
 
 # ============================================================
-# Load paths and data
+# Load data
 # ============================================================
 CONFIG_FILE = "local_config.yml"
 
-with open(CONFIG_FILE, 'r') as f:
+with open(CONFIG_FILE, "r") as f:
     local_config = yaml.safe_load(f)
 
-RAW_DATA_PATH = local_config["raw_data_path"]
 LOCAL_OUTPUT_PATH = local_config["local_output_path"]
-
-csv_file = os.path.join(
-    RAW_DATA_PATH, '..', '60x', 'derivatives', 'summary',
-    'all_samples_fiber_diameters.csv'
-)
-
 STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
 
-hist_auc_df = compute_histogram_auc_per_nerve(csv_file)
-cnap_meta_df = pd.read_pickle(STORED_DF_PATH)
-
+df = pd.read_pickle(STORED_DF_PATH)
 
 # ============================================================
-# Normalize nerve labels
+# Analysis parameters
 # ============================================================
-histology_nerve_map = {
-    'sciatic': 'SN',
-    'tibial': 'tibial',
-    'vagus': 'cVN'
+MAX_DISTANCE_MM = 26  # match Fig 8 short-distance regime
+
+NERES = ["cVN", "SN", "tibial"]
+FIBER_TYPES = ["myel", "unmyel"]
+
+METRICS = {
+    "peak_amplitude": "Peak amplitude (mV)",
+    "peak_time": "Peak time (ms)",
+    "auc": "CNAP AUC"
 }
 
-hist_auc_df['NerveCanonical'] = hist_auc_df['NerveType'].map(histology_nerve_map)
-cnap_meta_df['NerveCanonical'] = cnap_meta_df['rec_nerve']
-
-hist_auc_df = hist_auc_df.dropna(subset=['NerveCanonical'])
-cnap_meta_df = cnap_meta_df.dropna(subset=['NerveCanonical'])
-
-
-# ============================================================
-# Aggregate CNAP AUC (for averaged plot)
-# ============================================================
-avg_auc_df = (
-    cnap_meta_df
-    .groupby(['expdate', 'NerveCanonical'], as_index=False)
-    .agg(
-        avg_auc=('auc', 'mean'),
-        std_auc=('auc', 'std'),
-        n_records=('auc', 'count')
-    )
-)
-
-
-# ============================================================
-# Histology → CNAP date mapping
-# ============================================================
-mapping = {
-    '39-1': '20220531',
-    '39-2': '20220531',
-    '40-1': '20220622',
-    '41-1': '20220720',
-    '41-2': '20220720',
-    '43-1': '20221103',
-    '44-1': '20221108',
-    '44-2': '20221108',
-    '45-1': '20221122',
-    '46-1': '20221201',
-    '46-2': '20221202',
-    '47-1': '20230131',
-    '48-1': '20230207',
-    '48-2': '20230207'
+NERve_COLORS = {
+    "cVN": "tab:blue",
+    "SN": "tab:green",
+    "tibial": "tab:red"
 }
 
-hist_auc_df['expdate'] = hist_auc_df['Name'].map(mapping)
-hist_auc_df = hist_auc_df.dropna(subset=['expdate'])
-
-
-# ============================================================
-# Merge for averaged plot
-# ============================================================
-merged_avg_df = pd.merge(
-    hist_auc_df,
-    avg_auc_df,
-    on=['expdate', 'NerveCanonical'],
-    how='inner'
-)
-
+FIBER_MARKERS = {
+    "myel": "o",
+    "unmyel": "s"
+}
 
 # ============================================================
-# Plot 1: histology AUC vs mean CNAP AUC
+# Filter base dataframe
 # ============================================================
-plt.figure(figsize=(7, 5))
-
-plt.scatter(
-    merged_avg_df['hist_auc_fibers_um'],
-    merged_avg_df['avg_auc'],
-    s=80
-)
-
-for _, row in merged_avg_df.iterrows():
-    plt.text(
-        row['hist_auc_fibers_um'] + 1,
-        row['avg_auc'] + 5,
-        f"{row['Name']} ({row['NerveCanonical']})",
-        fontsize=9
-    )
-
-plt.xlabel("Fiber diameter histogram AUC (fibers·μm)")
-plt.ylabel("Mean CNAP AUC")
-plt.title("Fiber Diameter AUC vs CNAP AUC\n(histology-averaged, nerve-matched)")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
-
+df = df[
+    (df["ch_num_neural"] == 1) &
+    (df["stim_rec_dist"] > 0) &
+    (df["stim_rec_dist"] < MAX_DISTANCE_MM) &
+    (df["rec_nerve"].isin(NERES)) &
+    (df["target_fiber_types"].isin(FIBER_TYPES))
+].copy()
 
 # ============================================================
-# Plot 2: per-record CNAP vs histology AUC (ch_num_neural == 1)
+# Power-law regression helper
 # ============================================================
-valid_hist_pairs = hist_auc_df[['expdate', 'NerveCanonical']].drop_duplicates()
+def power_law_fit(x, y):
+    """
+    Fits y = k * x^alpha via log-log regression
+    Returns k, alpha, fitted model
+    """
+    x_log = np.log(x)
+    y_log = np.log(y)
 
-# Filter CNAP rows:
-#   1) must have histology
-#   2) must be neural channel 1
-cnap_filtered = pd.merge(
-    cnap_meta_df,
-    valid_hist_pairs,
-    on=['expdate', 'NerveCanonical'],
-    how='inner'
-)
+    X = sm.add_constant(x_log)
+    model = sm.OLS(y_log, X).fit()
 
-cnap_filtered = cnap_filtered[cnap_filtered['ch_num_neural'] == 1]
+    k = np.exp(model.params["const"])
+    alpha = model.params[x_log.name]
 
-# Attach histology AUC
-cnap_with_hist = pd.merge(
-    cnap_filtered,
-    hist_auc_df[['expdate', 'NerveCanonical', 'hist_auc_fibers_um']],
-    on=['expdate', 'NerveCanonical'],
-    how='inner'
-)
+    return k, alpha, model
 
-plt.figure(figsize=(7, 5))
+# ============================================================
+# Fit models
+# ============================================================
+results = {}
 
-plt.scatter(
-    cnap_with_hist['hist_auc_fibers_um'],
-    cnap_with_hist['auc'],
-    s=60,
-    alpha=0.7
-)
+for nerve in NERES:
+    results[nerve] = {}
 
-plt.xlabel("Fiber diameter histogram AUC (fibers·μm)")
-plt.ylabel("CNAP AUC (per recording)")
-plt.title("Fiber Diameter AUC vs CNAP AUC\n(per-record, ch_num_neural = 1)")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+    for fiber in FIBER_TYPES:
+        results[nerve][fiber] = {}
+
+        df_nf = df[
+            (df["rec_nerve"] == nerve) &
+            (df["target_fiber_types"] == fiber)
+        ]
+
+        for metric in METRICS:
+            df_m = df_nf[df_nf[metric] > 0]
+
+            if len(df_m) < 5:
+                continue
+
+            k, alpha, model = power_law_fit(
+                df_m["stim_rec_dist"],
+                df_m[metric]
+            )
+
+            results[nerve][fiber][metric] = {
+                "k": k,
+                "alpha": alpha,
+                "model": model,
+                "df": df_m
+            }
+
+            print(
+                f"{nerve} | {fiber} | {metric}: "
+                f"{metric} = {k:.2f} * distance^{alpha:.2f} "
+                f"(R²={model.rsquared:.3f})"
+            )
+
+# ============================================================
+# Plotting
+# ============================================================
+d_fit = np.linspace(5, MAX_DISTANCE_MM, 300)
+
+for metric, ylabel in METRICS.items():
+    plt.figure(figsize=(7, 6))
+
+    for nerve in NERES:
+        for fiber in FIBER_TYPES:
+            if metric not in results[nerve][fiber]:
+                continue
+
+            df_plot = results[nerve][fiber][metric]["df"]
+            k = results[nerve][fiber][metric]["k"]
+            alpha = results[nerve][fiber][metric]["alpha"]
+
+            y_fit = k * d_fit ** alpha
+
+            plt.scatter(
+                df_plot["stim_rec_dist"],
+                df_plot[metric],
+                alpha=0.6,
+                color=NERve_COLORS[nerve],
+                marker=FIBER_MARKERS[fiber],
+                label=f"{nerve}-{fiber}"
+            )
+
+            plt.plot(
+                d_fit,
+                y_fit,
+                color=NERve_COLORS[nerve],
+                linestyle="--",
+                linewidth=2
+            )
+
+    plt.xlabel("Conduction distance (mm)")
+    plt.ylabel(ylabel)
+    plt.title(f"Effect of conduction distance on {ylabel}")
+    plt.grid(True)
+
+    # Deduplicate legend
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    plt.legend(by_label.values(), by_label.keys(), fontsize=8)
+
+    plt.tight_layout()
+    plt.show()
