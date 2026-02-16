@@ -21,10 +21,9 @@ cnap_df = pd.read_pickle(STORED_DF_PATH)
 # Load histology data (axon-level)
 # ============================================================
 RAW_DATA_PATH = local_config.get("raw_data_path")
-HIST_CSV = os.path.join(
-    RAW_DATA_PATH, "..", "60x", "derivatives", "summary",
-    "all_samples_fiber_diameters.csv"
-)
+BASE_SUMMARY_DIR = os.path.join(RAW_DATA_PATH, "..", "60x", "derivatives", "summary")
+
+HIST_CSV = os.path.join(BASE_SUMMARY_DIR, "all_samples_fiber_diameters.csv")
 hist_df = pd.read_csv(HIST_CSV)
 
 nerve_map = {"sciatic": "SN", "tibial": "tibial", "vagus": "cVN"}
@@ -58,7 +57,62 @@ hist_summary = (
 )
 
 # ============================================================
-# Merge CNAP + histology
+# Load fascicle-level data (from fasicle_data.csv)
+# ============================================================
+FASCICLE_CSV = os.path.join(BASE_SUMMARY_DIR, "fasicle_data.csv")
+fas_df = pd.read_csv(FASCICLE_CSV)
+
+# 1. Map subject → expdate using the same mapping as histology
+fas_df["expdate"] = fas_df["subject"].map(mapping)
+
+# 2. Merge in nerve type from histology (Name == subject)
+nerve_lookup = hist_df[["Name", "NerveType"]].drop_duplicates()
+fas_df = fas_df.merge(nerve_lookup, left_on="subject", right_on="Name", how="left")
+
+# 3. Map NerveType → NerveCanonical
+if "NerveType" in fas_df.columns:
+    fas_df["NerveCanonical"] = fas_df["NerveType"].map(nerve_map)
+
+# Split inner (i) and outer (o) metrics and aggregate to nerve-level
+fas_i = fas_df[fas_df["mask_type"] == "i"].copy()
+fas_o = fas_df[fas_df["mask_type"] == "o"].copy()
+
+fas_i_summary = (
+    fas_i.groupby(["expdate", "NerveCanonical"], as_index=False)
+         .agg(
+             i_eccentricity=("eccentricity", "mean"),
+             i_area=("area", "mean"),
+             i_orientation=("orientation", "mean")
+         )
+)
+
+fas_o_summary = (
+    fas_o.groupby(["expdate", "NerveCanonical"], as_index=False)
+         .agg(
+             o_thickness=("thickness_estimate", "mean"),
+             o_area=("area", "mean")
+         )
+)
+
+fas_summary = pd.merge(
+    fas_i_summary,
+    fas_o_summary,
+    on=["expdate", "NerveCanonical"],
+    how="outer"
+)
+
+# ============================================================
+# Merge histology + fascicle summaries
+# ============================================================
+hist_fas_summary = pd.merge(
+    hist_summary,
+    fas_summary,
+    on=["expdate", "NerveCanonical"],
+    how="inner"
+)
+
+# ============================================================
+# Merge CNAP + histology + fascicle
 # ============================================================
 NERVES = ["cVN", "SN", "tibial"]
 
@@ -70,24 +124,17 @@ df = cnap_df[
 
 df = pd.merge(
     df,
-    hist_summary,
+    hist_fas_summary,
     left_on=["expdate", "rec_nerve"],
     right_on=["expdate", "NerveCanonical"],
     how="inner"
 )
 
 # ============================================================
-# Prepare variables
+# Prepare variables (ONLY peak_amplitude)
 # ============================================================
-METRICS = {
-    "auc": "log_auc",
-    "peak_amplitude": "log_peak_amp",
-    "peak_time": "log_peak_time"
-}
-
-for raw, log_name in METRICS.items():
-    df = df[df[raw] > 0]
-    df[log_name] = np.log(df[raw])
+df = df[df["peak_amplitude"] > 0]
+df["log_peak_amp"] = np.log(df["peak_amplitude"])
 
 df["log_dist"] = np.log(df["stim_rec_dist"])
 df["fiber"] = df["target_fiber_types"].astype("category")
@@ -95,7 +142,7 @@ df["nerve"] = df["rec_nerve"].astype("category")
 df["subject"] = df["expdate"].astype("category")
 
 # ============================================================
-# NEW: Split cVN into myelinated vs unmyelinated
+# Split cVN into myelinated vs unmyelinated
 # ============================================================
 def classify_cvn(row):
     if row["nerve"] != "cVN":
@@ -110,23 +157,15 @@ df["nerve_fiber_group"] = df.apply(classify_cvn, axis=1)
 df["nerve_fiber_group"] = df["nerve_fiber_group"].astype("category")
 
 # ============================================================
-# Helper: mixed model log(y) ~ log(distance) + (1|subject)
+# Helper: distance-only OLS model log(peak_amp) ~ log(distance)
 # ============================================================
-def fit_distance_mixed(df_sub, log_metric):
-    model = smf.mixedlm(
-        f"{log_metric} ~ log_dist",
-        df_sub,
-        groups=df_sub["subject"]
-    )
-    result = model.fit(method="lbfgs")
-
-    fe_pred = result.predict(exog=df_sub[["log_dist"]])
-    df_sub[f"{log_metric}_dist_me_resid"] = df_sub[log_metric] - fe_pred
-
-    return result, df_sub
+def fit_distance_only(df_sub):
+    model = smf.ols("log_peak_amp ~ log_dist", data=df_sub).fit()
+    df_sub["log_peak_amp_dist_resid"] = model.resid
+    return model, df_sub
 
 # ============================================================
-# 1. Fit model separately for each nerve-fiber group
+# Nerve groups
 # ============================================================
 nerve_groups = {
     "tibial": "tibial",
@@ -135,90 +174,73 @@ nerve_groups = {
     "cVN_unmyel": "cVN_unmyel"
 }
 
-for metric, log_metric in METRICS.items():
-    print(f"\n================ METRIC: {metric.upper()} =================\n")
+# Predictors for second-stage models
+SECOND_STAGE_PREDICTORS = [
+    "hist_axon_count",
+    "hist_mean_diam",
+    "i_eccentricity",
+    "i_area",
+    "o_thickness",
+    "i_orientation",
+]
 
-    for label, code in nerve_groups.items():
-        print(f"\n---- GROUP: {label.upper()} ----")
+# ============================================================
+# Distance-only model per nerve-fiber group
+# + Option A only: univariate models + plots (24 total)
+# ============================================================
+print("\n================ METRIC: PEAK_AMPLITUDE =================\n")
 
-        df_sub = df[df["nerve_fiber_group"] == code].copy()
-        if df_sub.empty:
-            print("No data for this group.")
+for label, code in nerve_groups.items():
+    print(f"\n---- GROUP: {label.upper()} ----")
+
+    df_sub = df[df["nerve_fiber_group"] == code].copy()
+    if df_sub.empty:
+        print("No data for this group.")
+        continue
+
+    # Distance-only OLS model
+    result_ols, df_sub = fit_distance_only(df_sub)
+    print("\nDistance-only OLS model summary (log_peak_amp ~ log_dist):")
+    print(result_ols.summary())
+
+    resid_col = "log_peak_amp_dist_resid"
+
+    # ----------------------------------------------------
+    # Option A: Univariate OLS models (resid ~ predictor)
+    # + individual plots
+    # ----------------------------------------------------
+    print("\nOption A: Univariate second-stage models (resid ~ predictor)\n")
+    for pred in SECOND_STAGE_PREDICTORS:
+        if pred not in df_sub.columns:
+            print(f"  Skipping {pred}: not in dataframe.")
             continue
 
-        result, df_sub = fit_distance_mixed(df_sub, log_metric)
-        print(result.summary())
+        df_valid = df_sub.dropna(subset=[resid_col, pred])
+        if df_valid.empty:
+            print(f"  Skipping {pred}: no valid data.")
+            continue
 
-        plt.figure(figsize=(7,6))
+        formula = f"{resid_col} ~ {pred}"
+        model_uni = smf.ols(formula, data=df_valid).fit()
+        print(f"\n  Predictor: {pred}")
+        print(model_uni.summary())
+
+        # Plot residuals vs this predictor
+        plt.figure(figsize=(7, 6))
         plt.scatter(
-            df_sub["stim_rec_dist"],
-            df_sub[f"{log_metric}_dist_me_resid"],
-            alpha=0.6,
-            label=label
+            df_valid[pred],
+            df_valid[resid_col],
+            alpha=0.6
         )
+        # Add fitted line
+        x_vals = np.linspace(df_valid[pred].min(), df_valid[pred].max(), 100)
+        y_hat = model_uni.params["Intercept"] + model_uni.params[pred] * x_vals
+        plt.plot(x_vals, y_hat, color="red", linewidth=2)
+
         plt.axhline(0, color="black", linestyle="--")
-        plt.xlabel("Conduction distance (mm)")
-        plt.ylabel(f"{metric} residual (distance + subject removed)")
-        plt.title(f"{metric.upper()} — {label} — mixed model residuals")
+        plt.xlabel(pred)
+        plt.ylabel("Peak amplitude residual (after distance)")
+        plt.title(f"PEAK_AMPLITUDE — {label} — resid vs {pred}")
         plt.grid(True)
         plt.tight_layout()
         plt.show()
-
-# ============================================================
-# 2. Combined model: log(y) ~ log(distance) + nerve_fiber_group + (1|subject)
-# ============================================================
-for metric, log_metric in METRICS.items():
-    print(f"\n================ COMBINED MODEL: {metric.upper()} =================\n")
-
-    model = smf.mixedlm(
-        f"{log_metric} ~ log_dist + nerve_fiber_group",
-        df,
-        groups=df["subject"]
-    )
-    result = model.fit(method="lbfgs")
-
-    fe_pred = result.predict(exog=df[["log_dist", "nerve_fiber_group"]])
-    df[f"{log_metric}_combined_me_resid"] = df[log_metric] - fe_pred
-
-    print(result.summary())
-
-    plt.figure(figsize=(7,6))
-    for grp in df["nerve_fiber_group"].unique():
-        dfn = df[df["nerve_fiber_group"] == grp]
-        plt.scatter(
-            dfn["stim_rec_dist"],
-            dfn[f"{log_metric}_combined_me_resid"],
-            alpha=0.6,
-            label=grp
-        )
-    plt.axhline(0, color="black", linestyle="--")
-    plt.xlabel("Conduction distance (mm)")
-    plt.ylabel(f"{metric} residual (distance + group + subject removed)")
-    plt.title(f"{metric.upper()} — combined mixed model residuals")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-# ============================================================
-# 3. Second-stage model: how histology explains remaining variance
-# ============================================================
-for metric, log_metric in METRICS.items():
-    print(f"\n================ SECOND-STAGE HISTOLOGY MODEL: {metric.upper()} =================\n")
-
-    model2 = smf.ols(
-        f"{log_metric}_combined_me_resid ~ hist_mean_diam + hist_median_diam + hist_total_diam + hist_axon_count",
-        data=df
-    ).fit()
-
-    print(model2.summary())
-
-    plt.figure(figsize=(7,6))
-    plt.scatter(df["hist_axon_count"], df[f"{log_metric}_combined_me_resid"], alpha=0.6)
-    plt.axhline(0, color="black", linestyle="--")
-    plt.xlabel("Axon Count")
-    plt.ylabel(f"{metric} residual")
-    plt.title(f"{metric.upper()} residuals vs histology (mean diameter)")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
