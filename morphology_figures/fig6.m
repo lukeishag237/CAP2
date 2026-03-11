@@ -20,7 +20,8 @@ minorF = F.minor_axis_um;
 areaDF = F.area_diam_um;
 
 %% Convert subject labels to numeric x positions
-[~,~,xF] = unique(subjectsF);
+% Map each subject to its index in orderedSubjects
+xF = arrayfun(@(s) find(orderedSubjects == s), subjectsF);
 
 %% -----------------------------
 %  Extract whole-nerve rows from SUMMARY
@@ -32,8 +33,8 @@ subjectsS = string(S.subject);
 majorS = S.whole_major_axis_um;
 minorS = S.whole_minor_axis_um;
 areaDS = S.whole_area_diam_um;
+xS = arrayfun(@(s) find(orderedSubjects == s), subjectsS);
 
-[~,~,xS] = unique(subjectsS);
 
 %% -----------------------------
 %  Create figure
@@ -109,7 +110,7 @@ wholeA = S.whole_area_um2;
 outerA = S.outer_area_um2;
 
 % Convert subject labels to numeric x positions
-[~,~,xS] = unique(subjectsS);
+xS = arrayfun(@(s) find(orderedSubjects == s), subjectsS);
 
 %% ============================
 %   TOP SUBPLOT: num_fascicles
@@ -147,6 +148,17 @@ rawAreas = [axonA, wholeA, outerA];
 % Convert to percentages
 rowSums = sum(rawAreas, 2);
 pctAreas = rawAreas ./ rowSums * 100;   % each row sums to 100%
+
+% Reorder rows to match orderedSubjects (via xS)
+[~, order] = sort(xS);
+
+pctAreas = pctAreas(order, :);
+axonA    = axonA(order);
+wholeA   = wholeA(order);
+outerA   = outerA(order);
+numF     = numF(order);   % optional, to keep subplot 3 perfectly aligned too
+subjectsS = subjectsS(order);
+xS       = xS(order);
 
 hb = bar(pctAreas, 'stacked', 'BarWidth', 0.8);
 
