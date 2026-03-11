@@ -142,12 +142,16 @@ text(nSci + nTib + numel(cVN)/2 + 0.5, yl(2)*1.02, 'cVN', 'HorizontalAlignment',
 
 subplot(4,1,4); hold on; box on;
 
+% Compute non-axon fascicle area
+fascicleNonAxonA = wholeA - axonA;
+
 % Build matrix for stacked bar chart
-rawAreas = [axonA, wholeA, outerA];
+rawAreas = [axonA, fascicleNonAxonA, outerA];
 
 % Convert to percentages
 rowSums = sum(rawAreas, 2);
-pctAreas = rawAreas ./ rowSums * 100;   % each row sums to 100%
+pctAreas = rawAreas ./ rowSums * 100;
+
 
 % Reorder rows to match orderedSubjects (via xS)
 [~, order] = sort(xS);
