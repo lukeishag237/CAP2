@@ -107,6 +107,7 @@ subjectsS = string(S.subject);
 numF = S.num_fascicles;
 axonA = S.axon_area_um2;
 wholeA = S.whole_area_um2;
+sumFA = S.total_area_um2;
 outerA = S.outer_area_um2;
 
 % Convert subject labels to numeric x positions
@@ -143,14 +144,14 @@ text(nSci + nTib + numel(cVN)/2 + 0.5, yl(2)*1.02, 'cVN', 'HorizontalAlignment',
 subplot(4,1,4); hold on; box on;
 
 % Compute non-axon fascicle area
-fascicleNonAxonA = wholeA - axonA;
+fascicleNonAxonA = sumFA - axonA;
 
 % Build matrix for stacked bar chart
 rawAreas = [axonA, fascicleNonAxonA, outerA];
 
 % Convert to percentages
 rowSums = sum(rawAreas, 2);
-pctAreas = rawAreas ./ rowSums * 100;
+pctAreas = rawAreas ./ wholeA * 100;
 
 
 % Reorder rows to match orderedSubjects (via xS)
@@ -175,7 +176,7 @@ set(gca,'XTick',1:numel(orderedSubjects),'XTickLabel',orderedSubjects);
 ylabel('Percent of Total Area (%)');
 grid on;
 
-legend({'Axon Area','All Fascicles Area','All Surrounding Tissue Area'}, ...
+legend({'Myelinated Axon Area','Fascicles Minus Myelinated Axon Area','All Surrounding Tissue Area'}, ...
        'Location','bestoutside');
 
 % Add vertical dividers (not in legend)
