@@ -105,7 +105,7 @@ fas_summary["area_proportion"] = (
 # ============================================================
 dist_summary = (
     hist_df.groupby(["Name", "expdate"], as_index=False)
-           .agg(mean_distance_to_electrode=("distance_to_electrode", "mean"))
+           .agg(mean_distance_to_electrode=("distance_to_stim_cuff_um", "mean"))
 )
 
 # ============================================================
@@ -138,7 +138,7 @@ df = df.merge(
     dist_summary[["expdate", "mean_distance_to_electrode"]],
     on="expdate",
     how="left"
-).rename(columns={"mean_distance_to_electrode": "distance_to_electrode"})
+).rename(columns={"mean_distance_to_electrode": "distance_to_stim_cuff_um"})
 
 # ============================================================
 # Prepare variables
@@ -181,7 +181,7 @@ PREDICTORS = {
     "avg_fascicle_size": "Average Fascicle Size (µm²)",
     "outer_thickness_um": "Outer Thickness (µm)",
     "area_proportion": "Area Proportion (inner/outer)",
-    "distance_to_electrode": "Electrode Fit (µm)",
+    "distance_to_stim_cuff_um": "Electrode Fit (µm)",
 }
 
 colors = {
