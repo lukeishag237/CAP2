@@ -14,20 +14,20 @@ with open(CONFIG_FILE, "r") as f:
     local_config = yaml.safe_load(f)
 
 LOCAL_OUTPUT_PATH = local_config["local_output_path"]
-STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
-cnap_df = pd.read_pickle(STORED_DF_PATH)
+OUTPUT_DIR = LOCAL_OUTPUT_PATH + "/OutputFigs"
+# STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
+# cnap_df = pd.read_pickle(STORED_DF_PATH)
+STORED_DF_PATH  = os.path.join(LOCAL_OUTPUT_PATH, "stored_df_edited.csv")
+cnap_df = pd.read_csv(STORED_DF_PATH)
+
 
 # ============================================================
 # Load histology data (axon-level)
 # ============================================================
-RAW_DATA_PATH = local_config.get("raw_data_path")
-BASE_SUMMARY_DIR = os.path.join(RAW_DATA_PATH, "..", "60x", "derivatives", "summary")
-
-HIST_CSV = os.path.join(BASE_SUMMARY_DIR, "all_samples_fiber_diameters.csv")
+HIST_CSV = os.path.join(LOCAL_OUTPUT_PATH, "all_samples_fiber_diameters.csv")
 hist_df = pd.read_csv(HIST_CSV)
 
 nerve_map = {"sciatic": "SN", "tibial": "tibial", "vagus": "cVN"}
-hist_df["NerveCanonical"] = hist_df["NerveType"].map(nerve_map)
 
 mapping = {
     "39-1": "20220531", "39-2": "20220531",
@@ -41,7 +41,12 @@ mapping = {
     "48-1": "20230207", "48-2": "20230207"
 }
 hist_df["expdate"] = hist_df["Name"].map(mapping)
+hist_df["NerveCanonical"] = hist_df["NerveType"].map(nerve_map)
 hist_df = hist_df.dropna(subset=["expdate", "NerveCanonical"])
+
+hist_df["expdate"] = hist_df["expdate"].astype(str)
+cnap_df["expdate"] = cnap_df["expdate"].astype(str)
+
 
 # ============================================================
 # Aggregate axon-level histology → nerve-level summaries
@@ -49,88 +54,58 @@ hist_df = hist_df.dropna(subset=["expdate", "NerveCanonical"])
 hist_summary = (
     hist_df.groupby(["expdate", "NerveCanonical"], as_index=False)
            .agg(
-               hist_mean_diam=("SAE_diameter", "mean"),
-               hist_median_diam=("SAE_diameter", "median"),
-               hist_total_diam=("SAE_diameter", "sum"),
-               hist_axon_count=("SAE_diameter", "count")
+               hist_mean_diam=("MinFeret", "mean"),
+               hist_median_diam=("MinFeret", "median"),
+               hist_total_diam=("MinFeret", "sum"),
+               hist_axon_count=("MinFeret", "count")
            )
 )
 
 # ============================================================
-# Load fascicle-level data (from fascicle_data.csv)
+# Load fascicle-level data
 # ============================================================
+RAW_DATA_PATH = local_config.get("raw_data_path")
+BASE_SUMMARY_DIR = os.path.join(RAW_DATA_PATH, "..", "60x", "derivatives", "summary")
+
 FASCICLE_CSV = os.path.join(BASE_SUMMARY_DIR, "fascicle_data.csv")
 fas_df = pd.read_csv(FASCICLE_CSV)
 
-# Map subject → expdate
 fas_df["expdate"] = fas_df["subject"].map(mapping)
+fas_df["expdate"] = fas_df["expdate"].astype(str)
 
-# Merge nerve type
+
 nerve_lookup = hist_df[["Name", "NerveType"]].drop_duplicates()
 fas_df = fas_df.merge(nerve_lookup, left_on="subject", right_on="Name", how="left")
-
 fas_df["NerveCanonical"] = fas_df["NerveType"].map(nerve_map)
 
-# Split inner (i), outer (o), and summary rows
-fas_i = fas_df[fas_df["mask_type"] == "i"].copy()
-fas_o = fas_df[fas_df["mask_type"] == "o"].copy()
+# ============================================================
+# Extract summary rows (nerve-level fascicle metrics)
+# ============================================================
 fas_summary_rows = fas_df[fas_df["mask_type"] == "summary"].copy()
 
-# ============================================================
-# Inner fascicle summary (mean eccentricity, total inner area)
-# ============================================================
-# CSV columns:
-#   eccentricity
-#   area_um2
-
-fas_i_summary = (
-    fas_i.groupby(["expdate", "NerveCanonical"], as_index=False)
-         .agg(
-             i_eccentricity=("eccentricity", "mean"),
-             i_area=("area_um2", "sum")
-         )
-)
-
-# ============================================================
-# Outer boundary summary (thickness, outer area)
-# ============================================================
-# CSV columns:
-#   outer_thickness_um
-#   outer_area_um2
-
-fas_o_summary = (
-    fas_o.groupby(["expdate", "NerveCanonical"], as_index=False)
-         .agg(
-             o_thickness=("outer_thickness_um", "mean"),
-             outer_area=("outer_area_um2", "mean")
-         )
-)
-
-# ============================================================
-# Summary rows: num_fascicles, total_area_um2, axon_area_um2, area_ratio
-# ============================================================
-# CSV columns:
-#   num_fascicles
-#   total_area_um2
-#   axon_area_um2
-#   area_ratio
-
 fas_summary = fas_summary_rows[[
-    "expdate", "NerveCanonical", "num_fascicles",
-    "total_area_um2", "axon_area_um2", "area_ratio"
+    "expdate", "NerveCanonical",
+    "num_fascicles",
+    "total_area_um2",
+    "axon_area_um2",
+    "area_ratio",
+    "outer_area_um2",
+    "outer_perimeter_um",
+    "outer_thickness_um",
+    "whole_area_um2"
 ]]
 
-# ============================================================
-# Merge all fascicle summaries
-# ============================================================
-fas_summary = fas_summary.merge(fas_i_summary, on=["expdate", "NerveCanonical"], how="left")
-fas_summary = fas_summary.merge(fas_o_summary, on=["expdate", "NerveCanonical"], how="left")
+# Compute area proportion
+fas_summary["area_proportion"] = (
+    fas_summary["total_area_um2"] / fas_summary["outer_area_um2"]
+)
 
 # ============================================================
-# Add area_proportion (inner fascicles vs outer boundary)
+# Compute mean distance_to_electrode per subject (axon → nerve)
 # ============================================================
-fas_summary["area_proportion"] = (
-    fas_summary["total_area_um2"] / fas_summary["outer_area"]
+dist_summary = (
+    hist_df.groupby(["Name", "expdate"], as_index=False)
+           .agg(mean_distance_to_electrode=("distance_to_electrode", "mean"))
 )
 
 # ============================================================
@@ -159,40 +134,22 @@ df = pd.merge(
     how="inner"
 )
 
-# ============================================================
-# Prepare variables (AUC or peak amplitude)
-# ============================================================
-# ---------- OPTION 1: AUC ---------- 
-# df = df[df["auc"] > 0] 
-# df["log_auc"] = np.log(df["auc"]) 
-# plot_string = "AUC" 
-# resid_col = "log_auc_dist_resid" 
-# # ---------- OPTION 2: Peak Amplitude ---------- 
-df = df[df["peak_amplitude"] > 0] 
-df["log_peak_amp"] = np.log(df["peak_amplitude"]) 
-plot_string = "Peak Amplitude" 
-resid_col = "log_peak_amp_dist_resid"
+df = df.merge(
+    dist_summary[["expdate", "mean_distance_to_electrode"]],
+    on="expdate",
+    how="left"
+).rename(columns={"mean_distance_to_electrode": "distance_to_electrode"})
 
-df["log_dist"] = np.log(df["stim_rec_dist"])
+# ============================================================
+# Prepare variables
+# ============================================================
+df = df[df["peak_amplitude"] > 0]
 df["fiber"] = df["target_fiber_types"].astype("category")
 df["nerve"] = df["rec_nerve"].astype("category")
 df["subject"] = df["expdate"].astype("category")
 
 # ============================================================
-# Distance-only model
-# ============================================================
-def fit_distance_only(df_sub):
-    if "log_auc" in df_sub.columns:
-        model = smf.ols("log_auc ~ log_dist", data=df_sub).fit()
-        df_sub["log_auc_dist_resid"] = model.resid
-    else:
-        model = smf.ols("log_peak_amp ~ log_dist", data=df_sub).fit()
-        df_sub["log_peak_amp_dist_resid"] = model.resid
-    return model, df_sub
-
-
-# ============================================================
-# Split cVN into myelinated vs unmyelinated
+# Classify cVN myelinated vs unmyelinated
 # ============================================================
 def classify_cvn(row):
     if row["nerve"] != "cVN":
@@ -201,77 +158,138 @@ def classify_cvn(row):
 
 df["nerve_fiber_group"] = df.apply(classify_cvn, axis=1)
 
-# ============================================================
-# NEW second-stage predictors
-# ============================================================
-SECOND_STAGE_PREDICTORS = [
-    "hist_axon_count",
-    "hist_mean_diam",
-    "i_eccentricity",
-    "i_area",
-    "o_thickness",
-    "num_fascicles",
-    "area_ratio",
-    "area_proportion"
-]
-
 nerve_groups = {
     "tibial": "tibial",
     "sciatic": "SN",
     "cVN_myel": "cVN_myel",
-    "cVN_unmyel": "cVN_unmyel"
+    #"cVN_unmyel": "cVN_unmyel"
 }
 
-print(df.columns.tolist())
+# ============================================================
+# Compute average fascicle size
+# ============================================================
+df["avg_fascicle_size"] = df["total_area_um2"] / df["num_fascicles"]
 
 # ============================================================
-# Run univariate models + plots
+# Stage 2A: Multi-group direct PEAK AMPLITUDE models
 # ============================================================
-print("\n================ METRIC:", plot_string, "=================\n")
+PREDICTORS = {
+    "stim_rec_dist": "Conduction Distance (mm)",
+    "hist_axon_count": "Axon Count",
+    "total_area_um2": "Inner Area (µm²)",
+    "area_ratio": "Area Ratio (f/i)",
+    "avg_fascicle_size": "Average Fascicle Size (µm²)",
+    "outer_thickness_um": "Outer Thickness (µm)",
+    "area_proportion": "Area Proportion (inner/outer)",
+    "distance_to_electrode": "Electrode Fit (µm)",
+}
 
-for label, code in nerve_groups.items():
-    print(f"\n---- GROUP: {label.upper()} ----")
+colors = {
+    "tibial": "tab:blue",
+    "sciatic": "tab:green",
+    "cVN_myel": "tab:red"
+}
 
-    df_sub = df[df["nerve_fiber_group"] == code].copy()
-    if df_sub.empty:
-        print("No data for this group.")
-        continue
+print("\n================ DIRECT PEAK AMPLITUDE MODELS ================\n")
 
-    result_ols, df_sub = fit_distance_only(df_sub)
+for pred, pred_label in PREDICTORS.items():
+    print(f"\n========== PREDICTOR: {pred_label} ==========\n")
 
-    print("\nOption A: Univariate second-stage models\n")
+    plt.figure(figsize=(8, 7))
 
-    for pred in SECOND_STAGE_PREDICTORS:
-        if pred not in df_sub.columns:
-            print(f"  Skipping {pred}: missing.")
+    for label, code in nerve_groups.items():
+        df_sub = df[df["nerve_fiber_group"] == code].copy()
+        if df_sub.empty:
             continue
 
-        df_valid = df_sub.dropna(subset=[resid_col, pred])
+        df_valid = df_sub.dropna(subset=["peak_amplitude", pred])
         if df_valid.empty:
-            print(f"  Skipping {pred}: no valid rows.")
             continue
 
-        model_uni = smf.ols(f"{resid_col} ~ {pred}", data=df_valid).fit()
-
+        model_uni = smf.ols(f"peak_amplitude ~ {pred}", data=df_valid).fit()
         r2 = model_uni.rsquared
         pval = model_uni.pvalues[pred]
-        coef = model_uni.params[pred]
 
-        print(f"  {pred:15s} | R² = {r2:0.4f} | p = {pval:0.4f} | coef = {coef:0.4e}")
+        plt.scatter(
+            df_valid[pred],
+            df_valid["peak_amplitude"],
+            alpha=0.6,
+            color=colors[label]
+        )
 
-        # Plot
-        plt.figure(figsize=(7, 6))
-        plt.scatter(df_valid[pred], df_valid[resid_col], alpha=0.6)
-
-        x_vals = np.linspace(df_valid[pred].min(), df_valid[pred].max(), 100)
+        x_vals = np.linspace(df_valid[pred].min(), df_valid[pred].max(), 200)
         y_hat = model_uni.params["Intercept"] + model_uni.params[pred] * x_vals
-        plt.plot(x_vals, y_hat, color="red", linewidth=2)
 
-        plt.axhline(0, color="black", linestyle="--")
-        plt.xlabel(pred)
-        plt.ylabel(plot_string + " residual (after distance)")
-        plt.title(f"{plot_string} — {label} — resid vs {pred}")
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
+        plt.plot(
+            x_vals,
+            y_hat,
+            color=colors[label],
+            linewidth=2,
+            label=f"{label} (R²={r2:.2f}, p={pval:.3f})"
+        )
 
+    plt.xlabel(pred_label)
+    plt.ylabel("Peak Amplitude")
+    plt.title(f"Peak Amplitude vs {pred_label} — All Nerves")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+
+    # SAVE FIGURE
+    fig_path = os.path.join(OUTPUT_DIR, f"PeakAmplitude_vs_{pred}.png")
+    plt.savefig(fig_path, dpi=300)
+    plt.close()
+
+
+# ============================================================
+# Stage 2B: Multi-group direct PEAK TIME models
+# ============================================================
+print("\n================ DIRECT PEAK TIME MODELS ================\n")
+
+for pred, pred_label in PREDICTORS.items():
+    print(f"\n========== PREDICTOR: {pred_label} ==========\n")
+
+    plt.figure(figsize=(8, 7))
+
+    for label, code in nerve_groups.items():
+        df_sub = df[df["nerve_fiber_group"] == code].copy()
+        if df_sub.empty:
+            continue
+
+        df_valid = df_sub.dropna(subset=["peak_time", pred])
+        if df_valid.empty:
+            continue
+
+        model_uni = smf.ols(f"peak_time ~ {pred}", data=df_valid).fit()
+        r2 = model_uni.rsquared
+        pval = model_uni.pvalues[pred]
+
+        plt.scatter(
+            df_valid[pred],
+            df_valid["peak_time"],
+            alpha=0.6,
+            color=colors[label]
+        )
+
+        x_vals = np.linspace(df_valid[pred].min(), df_valid[pred].max(), 200)
+        y_hat = model_uni.params["Intercept"] + model_uni.params[pred] * x_vals
+
+        plt.plot(
+            x_vals,
+            y_hat,
+            color=colors[label],
+            linewidth=2,
+            label=f"{label} (R²={r2:.2f}, p={pval:.3f})"
+        )
+
+    plt.xlabel(pred_label)
+    plt.ylabel("Peak Time (ms)")
+    plt.title(f"Peak Time vs {pred_label} — All Nerves")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+
+    # SAVE FIGURE
+    fig_path = os.path.join(OUTPUT_DIR, f"PeakTime_vs_{pred}.png")
+    plt.savefig(fig_path, dpi=300)
+    plt.close()
