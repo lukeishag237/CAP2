@@ -63,9 +63,9 @@ class CNAPAnalyzer:
         # Find analysis window end based on conduction velocity. Added an if statement to implement unmyel fibers
         if self.metadata_df["target_fiber_types"][self.idx] == 'myel':
             analysis_end_idx = np.where(times >= (self.distance / self.min_cv))[0][0]
-            artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.16
+            artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 0.17 # increased to .2 from .16 due to peak time error
         else: #unmyel
-            analysis_end_idx = np.where(times >= (self.distance / .1))[0][0] # what should this value be?
+            analysis_end_idx = np.where(times >= (self.distance / .5))[0][0] # what should this value be?
             artifact_end_ms = float(self.metadata_df['stim_PW'][self.idx]) * polarity + 2 # is this wrong?
         
         # Calculate important indexes to return
@@ -75,8 +75,9 @@ class CNAPAnalyzer:
         # New! if CAP is DECREASING at artifact end (analysis start) - we must've went too far
         # Backtrack to peak and see if it is higher than our current peak  - reset artifact idx if it is
         if 1 < artifact_end_idx < len(signal) - 1:
+
             slope = signal[artifact_end_idx] - signal[artifact_end_idx - 1]
-            if slope < 0:
+            if slope < -0.1:   # much smaller threshold needed
                 i = artifact_end_idx - 1
                 # Walk backward until slope flips or start is reached
                 while i > 1:
@@ -338,7 +339,7 @@ class CNAPDataProcessor:
         if (fiber_type == 'myel'):
             g.axes[0,0].set_xlim([-0.1, 1.5])
         elif (fiber_type == 'unmyel'):
-            g.axes[0,0].set_xlim([-0.1,10])
+            g.axes[0,0].set_xlim([-0.1,20])
         else: 
             raise ValueError("Unknown Fiber Type!")
         
@@ -639,8 +640,8 @@ else:
     # in the Excel metadata file. The resulting DataFrame is in processor.data_df
     # processor = CNAPDataProcessor('AnalysisScript_CAPs_Batch_parameters.xlsx')
     processor = CNAPDataProcessor(str(Path(RAW_DATA_PATH) / 'AnalysisScript_CAPs_Batch_parameters.xlsx'),LOCAL_OUTPUT_PATH)
-    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=True) #FlagPlot to plot the gutcheck bounds
-
+    processor.process_data(PREPROCCESSED_CAP_PATH, flag_plot=False) #FlagPlot to plot the gutcheck bounds
+    
     #Save DataFrame to a .pkl file (if it doesn't already exist)
     processor.data_df.to_pickle(STORED_DF_PATH)
 
@@ -658,7 +659,7 @@ if plot_summary_myel:
             processor.plot_metric_grid(metric, nerve=nerve_str, fiber_type=fiber_type, ncols=8)
 
 # Plot all the CAPs for each unique exp date that is from cervical vagus nerve
-plot_CAPS_myel = False
+plot_CAPS_myel = True
 if plot_CAPS_myel:
     nerve_str_tuple = ('cVN','SN','tibial')
     fiber_type = 'myel'
@@ -677,7 +678,7 @@ if plot_summary_unmyel:
         processor.plot_combined_dates(metric, nerve=nerve_str, fiber_type=fiber_type)
         processor.plot_metric_grid(metric, nerve=nerve_str, fiber_type=fiber_type, ncols=8)
 
-plot_CAPS_unmyel = True
+plot_CAPS_unmyel = False
 if plot_CAPS_unmyel:
     fiber_type = 'unmyel'
     nerve_str = 'cVN' # Only the cVN has unmyelinated fiber data
