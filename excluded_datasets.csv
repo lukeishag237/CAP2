@@ -5,4 +5,10 @@ trial_unique_ID, reason_for_exclusion
 20230131_14, same reason as 20230131_13 since this is opposite polarity
 20221004_10, exclude trialnum 141 and 155 of 20221004 because conduction distance of 6mm resulted in stim artifact that overlapped with the signal
 20221004_11, same reason as 20221004_10 since this is opposite polarity
-20230207_1, biphasic stim is covering the signal, as visible by looking at monophasic counter parts
+20220720_1, CAPs have unusual shape and amplitude even with just the stim pulse
+20220720_2, see above
+20220720_3, see above
+20220720_4, see above
+20220720_5, see above
+20220720_6, see above
+20220720_7, see above
