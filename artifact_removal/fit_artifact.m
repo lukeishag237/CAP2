@@ -14,11 +14,10 @@
 % ── User settings ─────────────────────────────────────────────────────────────
 addpath('/Users/lukeishag/Documents/PERL/CAP2/external_dependencies/custom_denoising_scripts');
 %DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20221201_2';
-DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20220720_2';
-%DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20221122_1';
+DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20220518_6';
 
 
-CH_NUM         = 1;         % which channel to use (ch1 = ch_neural{} from ch1.mat)
+CH_NUM         = 2;         % which channel to use (ch1 = ch_neural{} from ch1.mat)
 NTRIG_EXPECTED = 10;        % pulses per amplitude level
 ZOOM_XLIM      = [-0.5, 3.0]; % ms around stimulus onset for plots
 % ──────────────────────────────────────────────────────────────────────────────

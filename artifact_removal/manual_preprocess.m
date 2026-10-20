@@ -7,8 +7,8 @@ close all
 
 % preproc_path = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/preprocessed_CAP_data/20221201_2/CAPData_ch1.mat';
 % raw_path     = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20221201_2/ch1.mat';
-preproc_path = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/preprocessed_CAP_data/20221122_1/CAPData_ch1.mat';
-raw_path     = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20221122_1/ch1.mat';
+preproc_path = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/preprocessed_CAP_data/20220518_1/CAPData_ch1.mat';
+raw_path     = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20220518_1/ch1.mat';
 
 % ── Load ─────────────────────────────────────────────────────────────────────
 preproc = load(preproc_path);
@@ -21,7 +21,7 @@ print_fields(raw,     raw_path);
 % ── Plot: single amplitude level ─────────────────────────────────────────────
 % Change AMP_IDX to inspect a different amplitude level (1 = lowest, n_amp = highest)
 [~, AMP_IDX] = min(preproc.amp_values_actual); %plot the max amplitude
-AMP_IDX = 3;
+%AMP_IDX = 3;
 n_amp = numel(raw.ch_neural);
 t_win = preproc.t_window;
 fs    = raw.fs;

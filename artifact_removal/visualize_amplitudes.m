@@ -6,8 +6,8 @@
 % inspect how the waveform changes with increasing stimulus amplitude.
 %
 % ── User settings ─────────────────────────────────────────────────────────────
-DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20221122_1';
-CH_NUM         = 1;
+DATASET_FOLDER = '/Volumes/bme_pena/Data_from_Duke_Collabs/CAP2/mat_cache_of_raw_data/20220518_4';
+CH_NUM         = 2;
 NTRIG_EXPECTED = 10;
 ZOOM_XLIM      = [-0.5, 3.0];   % ms
 % ──────────────────────────────────────────────────────────────────────────────
