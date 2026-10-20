@@ -1,0 +1,251 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import statsmodels.formula.api as smf
+import yaml
+import os
+
+# ============================================================
+# Load configuration and CNAP data
+# ============================================================
+CONFIG_FILE = "local_config.yml"
+
+with open(CONFIG_FILE, "r") as f:
+    local_config = yaml.safe_load(f)
+
+LOCAL_OUTPUT_PATH = local_config["local_output_path"]
+STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
+cnap_df = pd.read_pickle(STORED_DF_PATH)
+
+# ============================================================
+# Load histology data (axon-level)
+# ============================================================
+HIST_CSV = os.path.join(LOCAL_OUTPUT_PATH, "all_samples_fiber_diameters.csv")
+hist_df = pd.read_csv(HIST_CSV)
+
+nerve_map = {"sciatic": "SN", "tibial": "tibial", "vagus": "cVN"}
+hist_df["NerveCanonical"] = hist_df["NerveType"].map(nerve_map)
+
+mapping = {
+    "39-1": "20220531", "39-2": "20220531",
+    "40-1": "20220622",
+    "41-1": "20220720", "41-2": "20220720",
+    "43-1": "20221103",
+    "44-1": "20221108", "44-2": "20221108",
+    "45-1": "20221122",
+    "46-1": "20221201", "46-2": "20221201",
+    "47-1": "20230131",
+    "48-1": "20230207", "48-2": "20230207"
+}
+hist_df["expdate"] = hist_df["Name"].map(mapping)
+hist_df = hist_df.dropna(subset=["expdate", "NerveCanonical"])
+
+# ============================================================
+# Aggregate axon-level histology → nerve-level summaries
+# ============================================================
+hist_summary = (
+    hist_df.groupby(["expdate", "NerveCanonical"], as_index=False)
+           .agg(
+               hist_mean_diam=("SAE_diameter", "mean"),
+               hist_median_diam=("SAE_diameter", "median"),
+               hist_total_diam=("SAE_diameter", "sum"),
+               hist_axon_count=("SAE_diameter", "count")
+           )
+)
+
+# ============================================================
+# Load fascicle-level data
+# ============================================================
+RAW_DATA_PATH = local_config.get("raw_data_path")
+BASE_SUMMARY_DIR = os.path.join(RAW_DATA_PATH, "..", "60x", "derivatives", "summary")
+
+FASCICLE_CSV = os.path.join(BASE_SUMMARY_DIR, "fascicle_data.csv")
+fas_df = pd.read_csv(FASCICLE_CSV)
+
+fas_df["expdate"] = fas_df["subject"].map(mapping)
+
+nerve_lookup = hist_df[["Name", "NerveType"]].drop_duplicates()
+fas_df = fas_df.merge(nerve_lookup, left_on="subject", right_on="Name", how="left")
+fas_df["NerveCanonical"] = fas_df["NerveType"].map(nerve_map)
+
+# ============================================================
+# Extract summary rows (nerve-level fascicle metrics)
+# ============================================================
+fas_summary_rows = fas_df[fas_df["mask_type"] == "summary"].copy()
+
+fas_summary = fas_summary_rows[[
+    "expdate", "NerveCanonical",
+    "num_fascicles",
+    "total_area_um2",
+    "axon_area_um2",
+    "area_ratio",
+    "outer_area_um2",
+    "outer_perimeter_um",
+    "outer_thickness_um",
+    "whole_area_um2"
+]]
+
+# Compute area proportion
+fas_summary["area_proportion"] = (
+    fas_summary["total_area_um2"] / fas_summary["outer_area_um2"]
+)
+
+# ============================================================
+# Compute mean distance_to_electrode per subject (axon → nerve)
+# ============================================================
+dist_summary = (
+    hist_df.groupby(["Name", "expdate"], as_index=False)
+           .agg(mean_distance_to_electrode=("distance_to_electrode", "mean"))
+)
+
+# ============================================================
+# Merge CNAP + histology + fascicle
+# ============================================================
+NERVES = ["cVN", "SN", "tibial"]
+
+df = cnap_df[
+    (cnap_df["rec_nerve"].isin(NERVES)) &
+    (cnap_df["ch_num_neural"] == 1) &
+    (cnap_df["stim_rec_dist"] > 0)
+].copy()
+
+df = pd.merge(
+    df,
+    hist_summary,
+    left_on=["expdate", "rec_nerve"],
+    right_on=["expdate", "NerveCanonical"],
+    how="inner"
+)
+
+df = pd.merge(
+    df,
+    fas_summary,
+    on=["expdate", "NerveCanonical"],
+    how="inner"
+)
+
+df = df.merge(
+    dist_summary[["expdate", "mean_distance_to_electrode"]],
+    on="expdate",
+    how="left"
+).rename(columns={"mean_distance_to_electrode": "distance_to_electrode"})
+
+# ============================================================
+# Prepare variables
+# ============================================================
+df = df[df["peak_amplitude"] > 0]
+df["log_peak_amp"] = np.log(df["peak_amplitude"])
+df["log_dist"] = np.log(df["stim_rec_dist"])
+
+df["fiber"] = df["target_fiber_types"].astype("category")
+df["nerve"] = df["rec_nerve"].astype("category")
+df["subject"] = df["expdate"].astype("category")
+
+# ============================================================
+# Classify cVN myelinated vs unmyelinated
+# ============================================================
+def classify_cvn(row):
+    if row["nerve"] != "cVN":
+        return row["nerve"]
+    return "cVN_myel" if row["fiber"] == "myel" else "cVN_unmyel"
+
+df["nerve_fiber_group"] = df.apply(classify_cvn, axis=1)
+
+nerve_groups = {
+    "tibial": "tibial",
+    "sciatic": "SN",
+    "cVN_myel": "cVN_myel",
+    "cVN_unmyel": "cVN_unmyel"
+}
+
+# ============================================================
+# Compute average fascicle size
+# ============================================================
+df["avg_fascicle_size"] = df["total_area_um2"] / df["num_fascicles"]
+
+# ============================================================
+# Stage 1: Distance-only model → residuals
+# ============================================================
+def fit_distance_only(df_sub):
+    model = smf.ols("log_peak_amp ~ log_dist", data=df_sub).fit()
+    df_sub["log_peak_amp_dist_resid"] = model.resid
+    return model, df_sub
+
+# ============================================================
+# Stage 2: Multi-group residual plots
+# ============================================================
+SECOND_STAGE_PREDICTORS = {
+    "hist_axon_count": "Axon Count",
+    "num_fascicles": "Fascicle Count",
+    "avg_fascicle_size": "Average Fascicle Size (µm²)",
+    "outer_thickness_um": "Outer Thickness (µm)",
+    "area_proportion": "Area Proportion (inner/outer)",
+    "distance_to_electrode": "Average Electrode Fit (µm)"
+}
+
+colors = {
+    "tibial": "tab:blue",
+    "sciatic": "tab:green",
+    "cVN_myel": "tab:red",
+    "cVN_unmyel": "tab:orange"
+}
+
+print("\n================ TWO-STAGE MODEL: MULTI-GROUP RESIDUAL PLOTS ================\n")
+
+for pred, pred_label in SECOND_STAGE_PREDICTORS.items():
+    print(f"\n========== PREDICTOR: {pred_label} ==========\n")
+
+    plt.figure(figsize=(8, 7))
+
+    for label, code in nerve_groups.items():
+        df_sub = df[df["nerve_fiber_group"] == code].copy()
+        if df_sub.empty:
+            continue
+
+        # Stage 1: remove distance effect
+        model_dist, df_sub = fit_distance_only(df_sub)
+
+        # Skip if predictor missing
+        if pred not in df_sub.columns:
+            print(f"  {label}: skipping {pred} (column missing)")
+            continue
+
+        df_valid = df_sub.dropna(subset=["log_peak_amp_dist_resid", pred])
+        if df_valid.empty:
+            print(f"  {label}: skipping {pred} (no valid rows)")
+            continue
+
+        # Stage 2: univariate model
+        model_uni = smf.ols(f"log_peak_amp_dist_resid ~ {pred}", data=df_valid).fit()
+
+        r2 = model_uni.rsquared
+        pval = model_uni.pvalues[pred]
+
+        # Scatter
+        plt.scatter(
+            df_valid[pred],
+            df_valid["log_peak_amp_dist_resid"],
+            alpha=0.6,
+            color=colors[label]
+        )
+
+        # Regression line
+        x_vals = np.linspace(df_valid[pred].min(), df_valid[pred].max(), 200)
+        y_hat = model_uni.params["Intercept"] + model_uni.params[pred] * x_vals
+
+        plt.plot(
+            x_vals,
+            y_hat,
+            color=colors[label],
+            linewidth=2,
+            label=f"{label} (R²={r2:.2f}, p={pval:.3f})"
+        )
+
+    plt.axhline(0, color="black", linestyle="--")
+    plt.xlabel(pred_label)
+    plt.ylabel("Residual log peak amplitude (distance removed)")
+    plt.title(f"Residual vs {pred_label} — All Nerves")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()

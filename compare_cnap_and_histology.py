@@ -15,10 +15,10 @@ with open(CONFIG_FILE, "r") as f:
 
 LOCAL_OUTPUT_PATH = local_config["local_output_path"]
 OUTPUT_DIR = LOCAL_OUTPUT_PATH + "/OutputFigs"
-# STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
-# cnap_df = pd.read_pickle(STORED_DF_PATH)
-STORED_DF_PATH  = os.path.join(LOCAL_OUTPUT_PATH, "stored_df_edited.csv")
-cnap_df = pd.read_csv(STORED_DF_PATH)
+STORED_DF_PATH = os.path.join(LOCAL_OUTPUT_PATH, "stored_df.pkl")
+cnap_df = pd.read_pickle(STORED_DF_PATH)
+# STORED_DF_PATH  = os.path.join(LOCAL_OUTPUT_PATH, "stored_df_edited.csv")
+# cnap_df = pd.read_csv(STORED_DF_PATH)
 
 
 # ============================================================
