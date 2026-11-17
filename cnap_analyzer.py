@@ -244,6 +244,7 @@ class CNAPDataProcessor:
             'ch_neural_avg': signal,
             'ch_num_neural': int(mat_data['ch_num_neural'][0][0]),
             'stim_rec_dist': float(mat_data['stim_rec_dist'][0][0]),
+            'max_stim_amplitude_mA': float(np.max(mat_data['amp_values_actual'].flatten())),
             # Add new CNAP analysis results
             'peak_time': peak_info['peak_time'],
             'peak_amplitude': peak_info['peak_amplitude'],
@@ -259,6 +260,11 @@ class CNAPDataProcessor:
         for idx, row in metadata_df.iterrows():
             self.analyzer.idx = idx
             file_prefix = row['file_prefix_outputs_values']
+
+            if pd.isna(row['dataset_stim_polarity']):
+                print(f'Warning: Skipping {file_prefix} — dataset_stim_polarity is NaN')
+                continue
+
             mat_files = glob.glob(str(Path(preprocessed_CAP_path) / file_prefix / '*.mat'))
             
             # print warning if no .mat files found for this row
@@ -271,7 +277,8 @@ class CNAPDataProcessor:
                 data_dict.update({
                     'dataset_stim_polarity': row['dataset_stim_polarity'],
                     'rec_nerve': row['rec_nerve'],
-                    'target_fiber_types': row['target_fiber_types']
+                    'target_fiber_types': row['target_fiber_types'],
+                    'stim_PW': row['stim_PW'],
                 })
                 data_list.append(data_dict)
         
